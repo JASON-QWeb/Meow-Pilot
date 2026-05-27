@@ -1,0 +1,15 @@
+.reference/
+.pet/
+node_modules/
+dist/
+build/
+target/
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
+*.dmg
+.env
+.env.*
+!.env.example
+.DS_Store
+*.log
+coverage/
