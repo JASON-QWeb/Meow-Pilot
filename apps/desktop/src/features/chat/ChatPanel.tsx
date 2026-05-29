@@ -1,11 +1,12 @@
-import { Mic, Send, Square, Volume2 } from "lucide-react";
+import { ExternalLink, Mic, Music, Send, Square, Video, Volume2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { ChatMessage, ChatSendPayload, VoiceSpeakPayload, VoiceTranscribePayload } from "@pet/protocol";
+import type { ChatMessage, ChatSendPayload, MediaPlayerNode, SurfaceSpec, VoiceSpeakPayload, VoiceTranscribePayload } from "@pet/protocol";
 import { starterPrompts } from "../../config/starterPrompts";
 
 type ChatPanelProps = {
   messages: ChatMessage[];
   draft: string;
+  draftSurface?: SurfaceSpec | null;
   petName: string;
   onSend: (text: string) => unknown | Promise<unknown>;
   onSendVoice: (text: string) => Promise<ChatSendPayload | undefined>;
@@ -15,10 +16,10 @@ type ChatPanelProps = {
 
 type VoicePhase = "idle" | "recording" | "transcribing" | "synthesizing" | "playing" | "error";
 
-export function ChatPanel({ messages, draft, petName, onSend, onSendVoice, onTranscribe, onSpeak }: ChatPanelProps) {
+export function ChatPanel({ messages, draft, draftSurface, petName, onSend, onSendVoice, onTranscribe, onSpeak }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [phase, setPhase] = useState<VoicePhase>("idle");
-  const [voiceNotice, setVoiceNotice] = useState("点击麦克风开始语音对话；语音回复由 MiMo TTS 生成。");
+  const [voiceNotice, setVoiceNotice] = useState("点击麦克风开始语音对话；优先使用小米 MiMo 语音模型。");
   const [pendingVoiceRunId, setPendingVoiceRunId] = useState<string | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -59,18 +60,20 @@ export function ChatPanel({ messages, draft, petName, onSend, onSendVoice, onTra
   }
 
   return (
-    <section className="chatPanel" aria-label="Conversation">
+    <section className="chatPanel" aria-label="对话">
       <div className="messageList">
         {messages.map((message) => (
           <article className={`message ${message.role}`} key={message.id}>
-            <span>{message.role === "user" ? "You" : petName}</span>
+            <span>{message.role === "user" ? "你" : petName}</span>
             <p>{message.content}</p>
+            {message.surface ? <InlineSurface surface={message.surface} /> : null}
           </article>
         ))}
-        {draft ? (
+        {draft || draftSurface ? (
           <article className="message assistant streaming">
             <span>{petName}</span>
-            <p>{draft}</p>
+            {draft ? <p>{draft}</p> : null}
+            {draftSurface ? <InlineSurface surface={draftSurface} /> : null}
           </article>
         ) : null}
       </div>
@@ -93,17 +96,17 @@ export function ChatPanel({ messages, draft, petName, onSend, onSendVoice, onTra
         <button
           className={`iconButton ${phase === "recording" ? "listening" : ""}`}
           type="button"
-          aria-label={phase === "recording" ? "Stop and send voice message" : "Start voice message"}
+          aria-label={phase === "recording" ? "停止并发送语音" : "开始语音输入"}
           title={phase === "recording" ? "停止并发送语音" : "开始语音对话"}
           onClick={() => void captureVoice()}
         >
           {phase === "recording" ? <Square size={16} /> : <Mic size={18} />}
         </button>
-        <button className="iconButton" type="button" aria-label="Speak latest answer" title="用 MiMo TTS 朗读最近回复" onClick={speakLatestAnswer}>
+        <button className="iconButton" type="button" aria-label="朗读最近回复" title="朗读最近回复" onClick={speakLatestAnswer}>
           <Volume2 size={18} />
         </button>
         <input value={input} onChange={(event) => setInput(event.target.value)} placeholder="输入问题，或点击麦克风直接对话" />
-        <button className="iconButton primary" type="submit" aria-label="Send message">
+        <button className="iconButton primary" type="submit" aria-label="发送消息">
           <Send size={18} />
         </button>
       </form>
@@ -169,7 +172,7 @@ export function ChatPanel({ messages, draft, petName, onSend, onSendVoice, onTra
     clearRecordingTimeout();
     if (!discard) {
       setPhase("transcribing");
-      setVoiceNotice("正在将录音交给 MiMo 识别...");
+      setVoiceNotice("正在通过小米 MiMo 转写录音...");
     }
     if (recorder.state !== "inactive") {
       recorder.stop();
@@ -199,13 +202,13 @@ export function ChatPanel({ messages, draft, petName, onSend, onSendVoice, onTra
       const transcription = await onTranscribe(audioData);
       const transcript = transcription.text.trim();
       if (!transcript) throw new Error("Empty transcription");
-      setVoiceNotice(`MiMo 已识别：${transcript}`);
+      setVoiceNotice(`已识别：${transcript}`);
       await send(transcript, "voice");
       setPhase("idle");
     } catch (error) {
       setPhase("error");
       setVoiceNotice(
-        isRegularApiRequiredError(error) ? "语音对话需要配置普通 MiMo API Key；Token Plan 不适用于这个桌面应用。" : "MiMo 语音识别失败，请重试或输入文字。",
+        isVoiceProviderRequiredError(error) ? "语音转写需要小米 MiMo 或 OpenAI 语音配置；当前模型 provider 仍可继续文字对话。" : "语音识别失败，请重试或输入文字。",
       );
     }
   }
@@ -250,7 +253,7 @@ export function ChatPanel({ messages, draft, petName, onSend, onSendVoice, onTra
   async function playAnswer(text: string) {
     stopPlayback();
     setPhase("synthesizing");
-    setVoiceNotice("正在生成 MiMo 语音回复...");
+    setVoiceNotice("正在通过小米 MiMo 生成语音回复...");
     try {
       const speech = await onSpeak(text);
       const audioUrl = URL.createObjectURL(base64AudioBlob(speech.audioData, speech.mimeType));
@@ -263,7 +266,7 @@ export function ChatPanel({ messages, draft, petName, onSend, onSendVoice, onTra
       });
       audio.addEventListener("ended", () => {
         setPhase("idle");
-        setVoiceNotice("MiMo 语音回复播放完成。");
+        setVoiceNotice("语音回复播放完成。");
         stopPlayback();
       });
       audio.addEventListener("error", () => playSystemSpeech(text));
@@ -271,16 +274,16 @@ export function ChatPanel({ messages, draft, petName, onSend, onSendVoice, onTra
     } catch (error) {
       playSystemSpeech(
         text,
-        isRegularApiRequiredError(error) ? "语音回复需要普通 MiMo API Key；当前已切换为系统朗读。" : undefined,
+        isVoiceProviderRequiredError(error) ? "语音回复需要小米 MiMo 或 OpenAI 语音配置；当前已切换为系统朗读。" : undefined,
       );
     }
   }
 
-  function playSystemSpeech(text: string, fallbackNotice = "MiMo TTS 暂不可用，已切换为系统朗读。") {
+  function playSystemSpeech(text: string, fallbackNotice = "语音模型暂不可用，已切换为系统朗读。") {
     stopPlayback();
     if (!("speechSynthesis" in window)) {
       setPhase("error");
-      setVoiceNotice("MiMo TTS 暂不可用，且系统不支持朗读。");
+      setVoiceNotice("语音模型暂不可用，且系统不支持朗读。");
       return;
     }
 
@@ -310,6 +313,60 @@ export function ChatPanel({ messages, draft, petName, onSend, onSendVoice, onTra
       window.speechSynthesis.cancel();
     }
   }
+}
+
+function InlineSurface({ surface }: { surface: SurfaceSpec }) {
+  if (surface.layout.kind !== "media-player") return null;
+  return <InlineMediaPlayer node={surface.layout} />;
+}
+
+function InlineMediaPlayer({ node }: { node: MediaPlayerNode }) {
+  const Icon = node.media === "music" ? Music : Video;
+  const playable = Boolean(node.src || node.embedUrl);
+  return (
+    <section className={`inlineMediaPlayer media-${node.media} status-${node.status ?? "ready"}`}>
+      <div className="inlineMediaHeader">
+        <Icon size={18} />
+        <div>
+          <strong>{node.title}</strong>
+          {node.subtitle ? <small>{node.subtitle}</small> : null}
+        </div>
+        {node.sourceUrl ? (
+          <a href={node.sourceUrl} target="_blank" rel="noreferrer" aria-label="打开媒体来源" title="打开来源">
+            <ExternalLink size={16} />
+          </a>
+        ) : null}
+      </div>
+
+      {node.src && node.media === "music" ? (
+        <audio controls src={node.src}>
+          {node.mimeType ? <source src={node.src} type={node.mimeType} /> : null}
+        </audio>
+      ) : null}
+
+      {node.src && node.media === "video" ? (
+        <video controls poster={node.thumbnailUrl} src={node.src}>
+          {node.mimeType ? <source src={node.src} type={node.mimeType} /> : null}
+        </video>
+      ) : null}
+
+      {node.embedUrl ? (
+        <iframe
+          src={node.embedUrl}
+          title={node.title}
+          allow="autoplay; encrypted-media; picture-in-picture"
+          allowFullScreen
+        />
+      ) : null}
+
+      {!playable ? (
+        <div className="inlineMediaEmpty">
+          <Volume2 size={18} />
+          <span>{node.status === "external-only" ? "该来源需要在外部打开" : "等待可播放链接"}</span>
+        </div>
+      ) : null}
+    </section>
+  );
 }
 
 function preferredRecordingMimeType() {
@@ -393,8 +450,8 @@ function base64AudioBlob(audioData: string, mimeType: string) {
   return new Blob([bytes], { type: mimeType });
 }
 
-function isRegularApiRequiredError(error: unknown) {
-  return error instanceof Error && error.message.includes("regular Xiaomi MiMo API");
+function isVoiceProviderRequiredError(error: unknown) {
+  return error instanceof Error && /api key|provider_unavailable|语音配置/i.test(error.message);
 }
 
 type BrowserSpeechRecognitionConstructor = new () => BrowserSpeechRecognition;

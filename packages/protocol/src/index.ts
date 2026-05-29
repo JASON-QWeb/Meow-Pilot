@@ -41,6 +41,7 @@ export type LocalRpcMethod =
   | "chat.send"
   | "voice.transcribe"
   | "voice.speak"
+  | "voice.configure"
   | "agent.cancel"
   | "account.current"
   | "account.signIn"
@@ -52,6 +53,7 @@ export type LocalRpcMethod =
   | "memory.reject"
   | "skill.list"
   | "skill.run"
+  | "provider.configure"
   | "provider.list";
 
 export type LocalEventName =
@@ -127,11 +129,25 @@ export type VoiceSpeakParams = {
 
 export type VoiceSpeakPayload = {
   accepted: true;
-  mode: "xiaomi-tts";
+  mode: "ai-sdk-tts" | "xiaomi-tts";
   audioData: string;
-  mimeType: "audio/wav";
+  mimeType: string;
   model: string;
   voice: string;
+};
+
+export type VoiceConfigureParams = {
+  provider: "xiaomi";
+  apiKey: string;
+  baseUrl?: string;
+  audioModel?: string;
+  ttsModel?: string;
+  voice?: string;
+  instruction?: string;
+};
+
+export type VoiceConfigurePayload = {
+  providers: ProviderSummary[];
 };
 
 export type AccountProfile = {
@@ -181,7 +197,7 @@ export type FriendAddPayload = {
 export type SocialExchangeRecord = {
   id: string;
   friendId: string;
-  direction: "outgoing" | "incoming" | "local-simulated";
+  direction: "outgoing" | "incoming" | "local";
   summary: string;
   sharedSkills: string[];
   sharedMemoryCount: number;
@@ -208,6 +224,7 @@ export type AgentDeltaEvent = {
   sessionId: string;
   runId: string;
   text: string;
+  surface?: SurfaceSpec;
 };
 
 export type ChatMessageEvent = {
@@ -221,6 +238,7 @@ export type ChatMessage = {
   content: string;
   createdAt: string;
   runId?: string;
+  surface?: SurfaceSpec;
 };
 
 export type PetEmotion =
@@ -330,6 +348,12 @@ export type MediaPlayerNode = {
   subtitle?: string;
   provider?: string;
   posterTone?: "aqua" | "rose" | "amber" | "violet";
+  sourceUrl?: string;
+  src?: string;
+  embedUrl?: string;
+  mimeType?: string;
+  thumbnailUrl?: string;
+  status?: "ready" | "needs-source" | "external-only";
   controls: Array<"play" | "pause" | "queue" | "open" | "save">;
 };
 
@@ -390,14 +414,27 @@ export type SkillSummary = {
   path?: string;
 };
 
+export type AiProviderId = "openai" | "anthropic" | "google" | "xai" | "deepseek" | "openrouter" | "openai-compatible";
+
+export type ProviderConfigureParams = {
+  provider: AiProviderId;
+  apiKey: string;
+  model: string;
+  baseUrl?: string;
+};
+
+export type ProviderConfigurePayload = {
+  providers: ProviderSummary[];
+};
+
 export type ProviderSummary = {
   id: string;
   label: string;
-  mode: "mock" | "api" | "cli-bridge" | "local";
+  mode: "api" | "cli-bridge" | "local";
   configured: boolean;
   capabilities: string[];
   model?: string;
-  source?: "env" | "api-md" | "system";
+  source?: "env" | "local-config" | "api-md" | "system";
 };
 
 export function isRpcRequest(frame: unknown): frame is RpcRequest {

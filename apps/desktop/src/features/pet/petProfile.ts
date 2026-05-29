@@ -1,4 +1,4 @@
-export type PetSpecies = "nori-cat" | "momo-blob" | "luma-star";
+export type PetSpecies = "qbot-fox" | "nori-cat" | "momo-blob" | "luma-star";
 
 export type PetAccessory = "none" | "bow" | "bell";
 
@@ -60,11 +60,11 @@ export type PetPosition = {
 };
 
 export const defaultPetProfile: PetProfile = {
-  name: "Nori",
-  species: "nori-cat",
-  primaryColor: "#f7fbf8",
-  accentColor: "#d5ebe5",
-  accessory: "bell",
+  name: "BabyQ",
+  species: "qbot-fox",
+  primaryColor: "#8b5cf6",
+  accentColor: "#f04fd8",
+  accessory: "none",
   appearance: "classic",
 };
 
@@ -74,23 +74,25 @@ export const defaultPetPosition: PetPosition = {
 };
 
 export const speciesOptions: Array<{ value: PetSpecies; label: string }> = [
-  { value: "nori-cat", label: "Nori cat" },
-  { value: "momo-blob", label: "Momo blob" },
-  { value: "luma-star", label: "Luma star" },
+  { value: "qbot-fox", label: "QBot 狐猫" },
+  { value: "nori-cat", label: "糯糯猫" },
+  { value: "momo-blob", label: "团子形" },
+  { value: "luma-star", label: "星星形" },
 ];
 
 export const accessoryOptions: Array<{ value: PetAccessory; label: string }> = [
-  { value: "none", label: "None" },
-  { value: "bow", label: "Bow" },
-  { value: "bell", label: "Bell" },
+  { value: "none", label: "无" },
+  { value: "bow", label: "蝴蝶结" },
+  { value: "bell", label: "小铃铛" },
 ];
 
 export const paletteOptions = [
-  { label: "Mint", primaryColor: "#f7fbf8", accentColor: "#d5ebe5" },
-  { label: "Sky", primaryColor: "#f8fbff", accentColor: "#cfe1ff" },
-  { label: "Peach", primaryColor: "#fff8f4", accentColor: "#ffd4c4" },
-  { label: "Lilac", primaryColor: "#fbf8ff", accentColor: "#ddd4ff" },
-  { label: "Citrus", primaryColor: "#fffdf4", accentColor: "#ffe08a" },
+  { label: "QBot", primaryColor: "#8b5cf6", accentColor: "#f04fd8" },
+  { label: "薄荷", primaryColor: "#f7fbf8", accentColor: "#d5ebe5" },
+  { label: "天空", primaryColor: "#f8fbff", accentColor: "#cfe1ff" },
+  { label: "蜜桃", primaryColor: "#fff8f4", accentColor: "#ffd4c4" },
+  { label: "丁香", primaryColor: "#fbf8ff", accentColor: "#ddd4ff" },
+  { label: "柑橘", primaryColor: "#fffdf4", accentColor: "#ffe08a" },
 ];
 
 export const defaultRigSettings: PetRigSettings = {

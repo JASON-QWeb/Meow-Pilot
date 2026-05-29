@@ -23,6 +23,7 @@ type MessageRow = {
   content: string;
   created_at: string;
   run_id: string | null;
+  surface_json?: string | null;
 };
 
 type MemoryRow = {
@@ -67,6 +68,14 @@ type SocialExchangeRow = {
 };
 
 const defaultDbPath = resolve(findWorkspaceRoot(), ".pet", "pet-agentd.sqlite");
+const legacyTemplateAssistantMessages = [
+  "我准备了一个音乐播放面板。当前走本地技能外壳，接入 Spotify / Apple Music / 本地媒体后会直接播放和管理队列。",
+  "视频面板已准备好。这里可以承载 YouTube、Bilibili 或本地文件播放，并挂接字幕、摘要和笔记技能。",
+  "我生成了今天的日程面板。真实日历接入后，会只分享摘要给好友宠物，不泄露原始详情。",
+  "我生成了一个查询面板。它支持卡片、表格、保存和继续追问，适合承接 web/search skill 的结果。",
+  "这条信息适合放进用户画像。我已经生成记忆提案，你确认后再写入。",
+  "链路已跑通：宠物状态、聊天流、生成式 UI surface 都通过本地 WebSocket 协议更新。",
+];
 
 export class PetStore {
   private readonly db: DatabaseSync;
@@ -109,7 +118,7 @@ export class PetStore {
 
   listMessages(sessionId: string): ChatMessage[] {
     const rows = this.db
-      .prepare("SELECT id, role, content, created_at, run_id FROM messages WHERE session_id = ? ORDER BY created_at ASC, rowid ASC")
+      .prepare("SELECT id, role, content, created_at, run_id, surface_json FROM messages WHERE session_id = ? ORDER BY created_at ASC, rowid ASC")
       .all(sessionId) as MessageRow[];
 
     return rows.map((row) => ({
@@ -118,15 +127,16 @@ export class PetStore {
       content: row.content,
       createdAt: row.created_at,
       runId: row.run_id ?? undefined,
+      surface: parseOptionalJson<SurfaceSpec>(row.surface_json),
     }));
   }
 
   saveMessage(sessionId: string, message: ChatMessage) {
     this.db
       .prepare(
-        "INSERT OR REPLACE INTO messages (id, session_id, role, content, created_at, run_id) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT OR REPLACE INTO messages (id, session_id, role, content, created_at, run_id, surface_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
       )
-      .run(message.id, sessionId, message.role, message.content, message.createdAt, message.runId ?? null);
+      .run(message.id, sessionId, message.role, message.content, message.createdAt, message.runId ?? null, message.surface ? JSON.stringify(message.surface) : null);
     this.touchSession(sessionId, message.createdAt);
   }
 
@@ -231,7 +241,7 @@ export class PetStore {
     const exchange: SocialExchangeRecord = {
       id: `sx_${crypto.randomUUID()}`,
       friendId,
-      direction: "local-simulated",
+      direction: "local",
       summary,
       sharedSkills,
       sharedMemoryCount,
@@ -272,7 +282,8 @@ export class PetStore {
         role TEXT NOT NULL,
         content TEXT NOT NULL,
         created_at TEXT NOT NULL,
-        run_id TEXT
+        run_id TEXT,
+        surface_json TEXT
       );
 
       CREATE INDEX IF NOT EXISTS idx_messages_session_created ON messages(session_id, created_at);
@@ -330,21 +341,24 @@ export class PetStore {
 
       CREATE INDEX IF NOT EXISTS idx_social_exchanges_friend_created ON social_exchanges(friend_id, created_at);
     `);
+    this.addColumnIfMissing("messages", "surface_json", "TEXT");
+    this.db.prepare("UPDATE social_exchanges SET direction = ? WHERE direction = ?").run("local", "local-simulated");
   }
 
   private seedDefaults() {
-    const count = this.db.prepare("SELECT COUNT(*) AS count FROM memories").get() as { count: number };
-    if (count.count > 0) return;
+    this.db.prepare("DELETE FROM memories WHERE id = ?").run("mem_local_first");
+    this.db
+      .prepare("DELETE FROM surfaces WHERE title IN (?, ?, ?, ?, ?, ?)")
+      .run("音乐队列", "视频窗口", "今日日程", "查询看板", "Agent 面板", "记忆");
+    for (const content of legacyTemplateAssistantMessages) {
+      this.db.prepare("DELETE FROM messages WHERE role = ? AND content = ?").run("assistant", content);
+    }
+  }
 
-    this.saveMemory({
-      id: "mem_local_first",
-      kind: "pet_note",
-      scope: "private",
-      content: "The product should keep private memory local by default and treat cloud sync as optional.",
-      confidence: 0.98,
-      source: "chat",
-      createdAt: new Date().toISOString(),
-    });
+  private addColumnIfMissing(table: string, column: string, definition: string) {
+    const rows = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+    if (rows.some((row) => row.name === column)) return;
+    this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   }
 }
 
@@ -388,6 +402,15 @@ function toSocialExchange(row: SocialExchangeRow): SocialExchangeRecord {
     sharedMemoryCount: row.shared_memory_count,
     createdAt: row.created_at,
   };
+}
+
+function parseOptionalJson<T>(value?: string | null): T | undefined {
+  if (!value) return undefined;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return undefined;
+  }
 }
 
 function normalizeHandle(value: string) {

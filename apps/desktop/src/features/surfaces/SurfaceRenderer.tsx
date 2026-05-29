@@ -30,7 +30,7 @@ export function GeneratedSurfacePanel({
   onAction: (action: UIAction, surface: SurfaceSpec) => void | Promise<void>;
 }) {
   return (
-    <section className="surfacePanel" aria-label="Generated UI">
+    <section className="surfacePanel" aria-label="生成式界面">
       <div className="surfaceTabs">
         {surfaces.length ? (
           surfaces.slice(0, 5).map((surface) => (
@@ -39,7 +39,7 @@ export function GeneratedSurfacePanel({
             </button>
           ))
         ) : (
-          <span>Surface</span>
+          <span>生成内容</span>
         )}
       </div>
       {activeSurface ? <SurfaceRenderer surface={activeSurface} onAction={onAction} /> : <EmptySurface />}
@@ -79,7 +79,7 @@ function EmptySurface() {
   return (
     <div className="emptySurface">
       <Sparkles size={28} />
-      <p>Try a prompt and the agent will open an interactive surface here.</p>
+      <p>发送任务后，视频、图片、表格、表单等交互界面会出现在这里。</p>
     </div>
   );
 }

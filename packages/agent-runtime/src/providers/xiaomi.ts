@@ -1,11 +1,4 @@
-import type { ChatMessage } from "@pet/protocol";
-import { loadXiaomiAudioConfig, loadXiaomiConfig, loadXiaomiTtsConfig, type ApiProviderConfig } from "../apiConfig";
-
-export type XiaomiGeneration = {
-  text: string;
-  model: string;
-  source: "xiaomi";
-};
+import { loadXiaomiAudioConfig, loadXiaomiTtsConfig, type ApiProviderConfig } from "../apiConfig";
 
 export type XiaomiTranscription = {
   text: string;
@@ -30,9 +23,6 @@ type ChatCompletionResponse = {
         data?: string;
       };
     };
-    delta?: {
-      content?: string;
-    };
   }>;
   error?: {
     message?: string;
@@ -40,48 +30,6 @@ type ChatCompletionResponse = {
 };
 
 const MAX_SPEECH_CHARACTERS = 1200;
-
-export async function generateWithXiaomi(userText: string, history: ChatMessage[]): Promise<XiaomiGeneration | null> {
-  const config = loadXiaomiConfig();
-  if (!config) return null;
-
-  const messages = [
-    {
-      role: "system",
-      content:
-        "你是一个产品化桌面宠物 Agent 的大脑。回答要简洁、有温度、可执行。不要声称你已经真实打开外部应用，除非工具结果明确说明。中文优先。",
-    },
-    ...history.slice(-8).map((message) => ({
-      role: message.role === "assistant" ? "assistant" : message.role === "system" ? "system" : "user",
-      content: message.content,
-    })),
-    {
-      role: "user",
-      content: userText,
-    },
-  ];
-
-  const body = await requestCompletion(config, {
-    model: config.model,
-    messages,
-    max_completion_tokens: 1024,
-    temperature: 0.7,
-    top_p: 0.95,
-    stream: false,
-    thinking: {
-      type: "disabled",
-    },
-  });
-
-  const text = body.choices?.[0]?.message?.content?.trim();
-  if (!text) return null;
-
-  return {
-    text,
-    model: config.model ?? "mimo-v2.5-pro",
-    source: "xiaomi",
-  };
-}
 
 export async function transcribeWithXiaomi(audioData: string): Promise<XiaomiTranscription | null> {
   const config = loadXiaomiAudioConfig();
@@ -96,7 +44,7 @@ export async function transcribeWithXiaomi(audioData: string): Promise<XiaomiTra
     messages: [
       {
         role: "system",
-        content: "你是准确的语音转写器。只输出录音中用户说出的文字，不回答问题，不添加解释或标点外的前后缀。",
+        content: "你是准确的语音转写器。只输出录音中用户说出的文字，不回答问题，不添加解释或前后缀。",
       },
       {
         role: "user",

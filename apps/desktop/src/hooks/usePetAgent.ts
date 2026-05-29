@@ -16,6 +16,8 @@ import type {
   PetActivityEvent,
   PetEmotion,
   PetEmotionEvent,
+  ProviderConfigureParams,
+  ProviderConfigurePayload,
   ProviderSummary,
   RpcEvent,
   SessionResumePayload,
@@ -26,6 +28,7 @@ import type {
   SurfaceSpec,
   UIAction,
   VoiceSpeakPayload,
+  VoiceConfigureParams,
   VoiceTranscribePayload,
 } from "@pet/protocol";
 import { PetAgentClient } from "../services/PetAgentClient";
@@ -33,6 +36,10 @@ import { PetAgentClient } from "../services/PetAgentClient";
 export type ConnectionStatus = "connecting" | "ready" | "offline";
 
 const WS_URL = import.meta.env.VITE_PET_AGENTD_URL ?? "ws://127.0.0.1:4747";
+
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
 
 export function usePetAgent() {
   const client = useMemo(() => new PetAgentClient(WS_URL), []);
@@ -47,6 +54,7 @@ export function usePetAgent() {
     reason: "initial-rest",
   });
   const [surfaces, setSurfaces] = useState<SurfaceSpec[]>([]);
+  const [draftSurface, setDraftSurface] = useState<SurfaceSpec | null>(null);
   const [activeSurfaceId, setActiveSurfaceId] = useState<string | null>(null);
   const [memories, setMemories] = useState<Memory[]>([]);
   const [memoryProposal, setMemoryProposal] = useState<Memory | null>(null);
@@ -93,22 +101,39 @@ export function usePetAgent() {
   }, [client]);
 
   useEffect(() => {
+    let disposed = false;
     const disposeEvent = client.onEvent((event) => handleEvent(event));
     const disposeStatus = client.onStatus((status) => setConnection(status));
 
     setConnection("connecting");
-    void (async () => {
-      await client.connect();
-      await client.request<HelloPayload>("hello", { clientName: "pet-desktop-web", protocolVersion: "0.1" });
-      const session = await client.request<SessionResumePayload>("session.resume");
-      setSessionId(session.sessionId);
-      setMessages(session.messages);
-      setSurfaces(session.surfaces);
-      setActiveSurfaceId(session.surfaces[0]?.id ?? null);
-      await refreshSideData();
-    })().catch(() => setConnection("offline"));
+    void initializeConnection();
+
+    async function initializeConnection() {
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        try {
+          await client.connect();
+          if (disposed) return;
+          await client.request<HelloPayload>("hello", { clientName: "pet-desktop-web", protocolVersion: "0.1" });
+          const session = await client.request<SessionResumePayload>("session.resume");
+          if (disposed) return;
+          setSessionId(session.sessionId);
+          setMessages(session.messages);
+          setSurfaces(session.surfaces);
+          setActiveSurfaceId(session.surfaces[0]?.id ?? null);
+          await refreshSideData();
+          return;
+        } catch {
+          client.close();
+          if (disposed) return;
+          setConnection(attempt > 2 ? "offline" : "connecting");
+          await sleep(Math.min(250 + attempt * 150, 1_500));
+        }
+      }
+      if (!disposed) setConnection("offline");
+    }
 
     return () => {
+      disposed = true;
       disposeEvent();
       disposeStatus();
       client.close();
@@ -122,12 +147,14 @@ export function usePetAgent() {
         setMessages((current) => [...current, payload.message]);
         if (payload.message.role === "assistant") {
           setDraft("");
+          setDraftSurface(null);
         }
         break;
       }
       case "agent.delta": {
         const payload = frame.payload as AgentDeltaEvent;
-        setDraft((current) => `${current}${current ? "\n" : ""}${payload.text}`);
+        if (payload.surface) setDraftSurface(payload.surface);
+        setDraft((current) => `${current}${payload.text}`);
         break;
       }
       case "pet.emotion": {
@@ -162,6 +189,7 @@ export function usePetAgent() {
       if (!trimmed || !sessionId) return;
 
       setDraft("");
+      setDraftSurface(null);
       return client.request<ChatSendPayload>("chat.send", { sessionId, text: trimmed, source });
     },
     [client, sessionId],
@@ -247,11 +275,47 @@ export function usePetAgent() {
     [client],
   );
 
+  const configureProvider = useCallback(
+    async (params: ProviderConfigureParams) => {
+      const payload = await client.request<ProviderConfigurePayload>("provider.configure", params);
+      setProviders(payload.providers);
+    },
+    [client],
+  );
+
+  const configureVoice = useCallback(
+    async (params: VoiceConfigureParams) => {
+      const payload = await client.request<ProviderConfigurePayload>("voice.configure", params);
+      setProviders(payload.providers);
+    },
+    [client],
+  );
+
+  const saveMemoryText = useCallback(
+    async (content: string) => {
+      const trimmed = content.trim();
+      if (!trimmed) return;
+      const memory: Memory = {
+        id: "mem_manual_profile",
+        kind: "user_profile",
+        scope: "private",
+        content: trimmed,
+        confidence: 0.92,
+        source: "import",
+        createdAt: new Date().toISOString(),
+      };
+      await client.request("memory.commit", { proposal: memory });
+      setMemories((current) => [memory, ...current.filter((item) => item.id !== memory.id)]);
+    },
+    [client],
+  );
+
   return {
     connection,
     sessionId,
     messages,
     draft,
+    draftSurface,
     petEmotion,
     petActivity,
     surfaces,
@@ -276,5 +340,8 @@ export function usePetAgent() {
     signIn,
     addFriend,
     exchangeWithFriend,
+    configureProvider,
+    configureVoice,
+    saveMemoryText,
   };
 }

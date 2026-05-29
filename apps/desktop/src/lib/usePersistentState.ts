@@ -18,5 +18,18 @@ export function usePersistentState<T>(key: string, fallback: T) {
     window.localStorage.setItem(key, JSON.stringify(value));
   }, [key, value]);
 
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== key || event.newValue === null) return;
+      try {
+        setValue(JSON.parse(event.newValue) as T);
+      } catch {
+        setValue(fallback);
+      }
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, [fallback, key]);
+
   return [value, setValue] as const;
 }

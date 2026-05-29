@@ -104,11 +104,11 @@ export function PetImageStudio({ asset, onApply, onClose }: PetImageStudioProps)
       <section className="petStudio" role="dialog" aria-modal="true" aria-label="从图片生成宠物形象">
         <header className="petStudioHeader">
           <div>
-            <p className="eyebrow">Pet Image Studio</p>
+            <p className="eyebrow">宠物图片工作室</p>
             <h2>从图片生成桌面宠物</h2>
             <p className="studioIntro">本地拆成透明图层，再以类似 Live2D / sprite rig 的方式驱动动作；原图不会上传。</p>
           </div>
-          <button className="studioClose" type="button" aria-label="Close image studio" onClick={onClose}>
+          <button className="studioClose" type="button" aria-label="关闭图片工作室" onClick={onClose}>
             <X size={18} />
           </button>
         </header>
@@ -120,7 +120,7 @@ export function PetImageStudio({ asset, onApply, onClose }: PetImageStudioProps)
             onDrop={handleDrop}
           >
             <h3>1. 导入原图</h3>
-            {source ? <img src={source.dataUrl} alt="Imported pet source" /> : <div className="emptyImage">支持 JPG / PNG / WebP，最大 15 MB</div>}
+            {source ? <img src={source.dataUrl} alt="导入的宠物原图" /> : <div className="emptyImage">支持 JPG / PNG / WebP，最大 15 MB</div>}
             <input ref={fileInputRef} className="visuallyHidden" type="file" accept="image/png,image/jpeg,image/webp" onChange={handleFileChange} />
             <button type="button" className="studioAction" onClick={() => fileInputRef.current?.click()}>
               <ImagePlus size={15} />
@@ -131,7 +131,7 @@ export function PetImageStudio({ asset, onApply, onClose }: PetImageStudioProps)
           <div className="studioImageCard rigCard">
             <h3>2. 动态预览</h3>
             {preview ? <RigPreview asset={preview} /> : <div className="emptyImage">导入图片后显示生成形象</div>}
-            <span className="localBadge">Local only</span>
+            <span className="localBadge">仅本地处理</span>
           </div>
 
           <fieldset className="studioControls">
@@ -183,7 +183,7 @@ export function PetImageStudio({ asset, onApply, onClose }: PetImageStudioProps)
           </fieldset>
         </div>
 
-        <section className="layerReview" aria-label="Generated image layers">
+        <section className="layerReview" aria-label="生成图层">
           <div className="layerReviewTitle">
             <h3>拆件确认</h3>
             <p>头部会响应思考/聆听，身体负责呼吸，脚部作为稳定落点。</p>

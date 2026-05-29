@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop-pet-capability",
+  "description": "允许桌面宠物移动自身窗口并打开工作窗口。",
+  "windows": ["pet", "work"],
+  "permissions": [
+    "core:default",
+    "opener:default",
+    "core:window:allow-get-all-windows",
+    "core:window:allow-outer-position",
+    "core:window:allow-set-position",
+    "core:window:allow-show",
+    "core:window:allow-set-focus",
+    "core:window:allow-unminimize",
+    "core:window:allow-start-dragging"
+  ]
+}
