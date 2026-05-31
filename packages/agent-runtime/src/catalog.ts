@@ -1,4 +1,7 @@
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { ProviderSummary, SkillSummary } from "@pet/protocol";
 import { AI_PROVIDER_DEFINITIONS, loadAiProviderConfig, loadAiSpeechConfig, loadAiTranscriptionConfig, loadXiaomiAudioConfig, loadXiaomiTtsConfig } from "./apiConfig";
 
@@ -44,6 +47,7 @@ export function listProviders(): ProviderSummary[] {
   const xiaomiSpeech = loadXiaomiTtsConfig();
   const codexConfigured = commandExists("codex");
   const claudeConfigured = commandExists("claude");
+  const antigravityConfigured = commandExists("agy") || commandExists("antigravity") || appExists(["Antigravity.app", "Google Antigravity.app"]);
   return [
     ...AI_PROVIDER_DEFINITIONS.map((definition) => {
       const config = loadAiProviderConfig(definition.id);
@@ -89,10 +93,23 @@ export function listProviders(): ProviderSummary[] {
       capabilities: ["text", "tools", "workspace"],
       source: claudeConfigured ? "system" : undefined,
     },
+    {
+      id: "antigravity-cli",
+      label: "Antigravity 桥接",
+      mode: "cli-bridge",
+      configured: antigravityConfigured,
+      capabilities: ["text", "tools", "workspace"],
+      source: antigravityConfigured ? "system" : undefined,
+    },
   ];
 }
 
 function commandExists(command: string) {
   const result = spawnSync(command, ["--version"], { encoding: "utf8", stdio: "ignore" });
   return result.status === 0;
+}
+
+function appExists(names: string[]) {
+  const roots = ["/Applications", join(homedir(), "Applications")];
+  return roots.some((root) => names.some((name) => existsSync(join(root, name))));
 }

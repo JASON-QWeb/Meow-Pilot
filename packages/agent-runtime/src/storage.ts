@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { AccountProfile, ChatMessage, FriendSummary, Memory, SocialExchangeRecord, SurfaceSpec } from "@pet/protocol";
+import type { AccountProfile, ChatMessage, FriendSummary, Memory, SessionSummary, SocialExchangeRecord, SurfaceSpec } from "@pet/protocol";
 
 export type RuntimeSession = {
   id: string;
@@ -40,6 +40,10 @@ type SurfaceRow = {
   spec_json: string;
 };
 
+type SessionSummaryRow = SessionRow & {
+  message_count: number;
+};
+
 type AccountRow = {
   id: string;
   handle: string;
@@ -64,6 +68,17 @@ type SocialExchangeRow = {
   summary: string;
   shared_skills_json: string;
   shared_memory_count: number;
+  created_at: string;
+};
+
+type RuntimeStatsRow = {
+  total_sessions: number;
+  total_messages: number;
+  total_surfaces: number;
+};
+
+type MessageContentRow = {
+  content: string;
   created_at: string;
 };
 
@@ -99,6 +114,33 @@ export class PetStore {
     return row ? toSession(row) : null;
   }
 
+  listSessions(): SessionSummary[] {
+    const rows = this.db
+      .prepare(
+        `
+          SELECT
+            sessions.id,
+            sessions.title,
+            sessions.created_at,
+            sessions.updated_at,
+            COUNT(messages.id) AS message_count
+          FROM sessions
+          LEFT JOIN messages ON messages.session_id = sessions.id
+          GROUP BY sessions.id
+          ORDER BY sessions.updated_at DESC, sessions.created_at DESC
+        `,
+      )
+      .all() as SessionSummaryRow[];
+
+    return rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      messageCount: row.message_count,
+    }));
+  }
+
   createSession(title: string, now = new Date().toISOString()) {
     const session: RuntimeSession = {
       id: `ses_${crypto.randomUUID()}`,
@@ -114,6 +156,11 @@ export class PetStore {
 
   touchSession(sessionId: string, now = new Date().toISOString()) {
     this.db.prepare("UPDATE sessions SET updated_at = ? WHERE id = ?").run(now, sessionId);
+  }
+
+  deleteSession(sessionId: string) {
+    const result = this.db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
+    return result.changes > 0;
   }
 
   listMessages(sessionId: string): ChatMessage[] {
@@ -168,6 +215,59 @@ export class PetStore {
       .all(sessionId) as SurfaceRow[];
 
     return rows.map((row) => JSON.parse(row.spec_json) as SurfaceSpec);
+  }
+
+  getSurface(sessionId: string, surfaceId: string): SurfaceSpec | null {
+    const row = this.db
+      .prepare("SELECT spec_json FROM surfaces WHERE session_id = ? AND id = ?")
+      .get(sessionId, surfaceId) as SurfaceRow | undefined;
+    return row ? (JSON.parse(row.spec_json) as SurfaceSpec) : null;
+  }
+
+  getRuntimeStats(now = new Date()) {
+    const totals = this.db
+      .prepare(
+        `
+          SELECT
+            (SELECT COUNT(*) FROM sessions) AS total_sessions,
+            (SELECT COUNT(*) FROM messages) AS total_messages,
+            (SELECT COUNT(*) FROM surfaces) AS total_surfaces
+        `,
+      )
+      .get() as RuntimeStatsRow;
+    const rows = this.db.prepare("SELECT content, created_at FROM messages WHERE role != ?").all("system") as MessageContentRow[];
+    const todayKey = localDateKey(now);
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayKey = localDateKey(yesterday);
+    let todayMessages = 0;
+    let yesterdayMessages = 0;
+    let todayEstimatedTokens = 0;
+    let yesterdayEstimatedTokens = 0;
+
+    for (const row of rows) {
+      const key = localDateKey(new Date(row.created_at));
+      if (key !== todayKey && key !== yesterdayKey) continue;
+      const tokens = estimateTokens(row.content);
+      if (key === todayKey) {
+        todayMessages += 1;
+        todayEstimatedTokens += tokens;
+      } else {
+        yesterdayMessages += 1;
+        yesterdayEstimatedTokens += tokens;
+      }
+    }
+
+    return {
+      generatedAt: now.toISOString(),
+      totalSessions: totals.total_sessions,
+      totalMessages: totals.total_messages,
+      totalSurfaces: totals.total_surfaces,
+      todayMessages,
+      yesterdayMessages,
+      todayEstimatedTokens,
+      yesterdayEstimatedTokens,
+    };
   }
 
   saveSurface(sessionId: string, surface: SurfaceSpec) {
@@ -421,6 +521,20 @@ function normalizeHandle(value: string) {
     .replace(/[^a-z0-9_.-]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return cleaned || `user-${crypto.randomUUID().slice(0, 6)}`;
+}
+
+function localDateKey(value: Date) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function estimateTokens(text: string) {
+  const cjk = text.match(/[\u3400-\u9fff]/g)?.length ?? 0;
+  const words = text.replace(/[\u3400-\u9fff]/g, " ").match(/[A-Za-z0-9_'-]+/g)?.length ?? 0;
+  const punctuation = text.match(/[^\sA-Za-z0-9_\u3400-\u9fff]/g)?.length ?? 0;
+  return Math.max(1, Math.ceil(cjk * 1.1 + words * 1.35 + punctuation * 0.35));
 }
 
 function findWorkspaceRoot() {

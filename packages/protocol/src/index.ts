@@ -37,12 +37,15 @@ export type LocalRpcFrame = RpcRequest | RpcResponse | RpcEvent;
 export type LocalRpcMethod =
   | "hello"
   | "session.create"
+  | "session.list"
   | "session.resume"
+  | "session.delete"
   | "chat.send"
   | "voice.transcribe"
   | "voice.speak"
   | "voice.configure"
   | "agent.cancel"
+  | "runtime.stats"
   | "account.current"
   | "account.signIn"
   | "friend.list"
@@ -53,6 +56,7 @@ export type LocalRpcMethod =
   | "memory.reject"
   | "skill.list"
   | "skill.run"
+  | "usage.list"
   | "provider.configure"
   | "provider.list";
 
@@ -89,6 +93,24 @@ export type SessionCreateParams = {
 export type SessionCreatePayload = {
   sessionId: string;
   title: string;
+  messages?: ChatMessage[];
+  surfaces?: SurfaceSpec[];
+};
+
+export type SessionSummary = {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  messageCount: number;
+};
+
+export type SessionListPayload = {
+  sessions: SessionSummary[];
+};
+
+export type SessionResumeParams = {
+  sessionId?: string;
 };
 
 export type SessionResumePayload = {
@@ -96,6 +118,15 @@ export type SessionResumePayload = {
   title: string;
   messages: ChatMessage[];
   surfaces: SurfaceSpec[];
+};
+
+export type SessionDeleteParams = {
+  sessionId: string;
+};
+
+export type SessionDeletePayload = {
+  sessionId: string;
+  deleted: true;
 };
 
 export type ChatSendParams = {
@@ -112,6 +143,17 @@ export type ChatSendParams = {
 export type ChatSendPayload = {
   runId: string;
   status: "accepted";
+};
+
+export type RuntimeStatsPayload = {
+  generatedAt: string;
+  totalSessions: number;
+  totalMessages: number;
+  totalSurfaces: number;
+  todayMessages: number;
+  yesterdayMessages: number;
+  todayEstimatedTokens: number;
+  yesterdayEstimatedTokens: number;
 };
 
 export type VoiceTranscribeParams = {
@@ -275,6 +317,7 @@ export type SurfaceSpec = {
     | "chat"
     | "search"
     | "calendar"
+    | "weather"
     | "music"
     | "video"
     | "task"
@@ -296,7 +339,8 @@ export type ComponentNode =
   | TimelineNode
   | MediaPlayerNode
   | FormNode
-  | MetricRowNode;
+  | MetricRowNode
+  | PieChartNode;
 
 export type StackNode = {
   kind: "stack";
@@ -378,6 +422,16 @@ export type MetricRowNode = {
   }>;
 };
 
+export type PieChartNode = {
+  kind: "pie-chart";
+  title?: string;
+  segments: Array<{
+    label: string;
+    value: number;
+    color?: string;
+  }>;
+};
+
 export type UIAction = {
   id: string;
   label: string;
@@ -435,6 +489,30 @@ export type ProviderSummary = {
   capabilities: string[];
   model?: string;
   source?: "env" | "local-config" | "api-md" | "system";
+};
+
+export type TokenUsageSummary = {
+  id: string;
+  label: string;
+  kind: "subscription" | "api";
+  primaryLabel: string;
+  primaryValue: string;
+  status: "connected" | "unconfigured" | "error";
+  sourceLabel: string;
+  href: string;
+  accent: "blue" | "violet" | "mint" | "amber" | "rose";
+  metrics: Array<{
+    label: string;
+    value: string;
+    hint: string;
+    percent?: number;
+  }>;
+  updatedAt?: string;
+  message?: string;
+};
+
+export type TokenUsageListPayload = {
+  summaries: TokenUsageSummary[];
 };
 
 export function isRpcRequest(frame: unknown): frame is RpcRequest {

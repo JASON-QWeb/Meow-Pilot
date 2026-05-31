@@ -1,6 +1,7 @@
 import type { CSSProperties, MouseEventHandler, PointerEventHandler } from "react";
 import type { PetEmotion } from "@pet/protocol";
-import qbotMascotUrl from "../../assets/qbot-mascot.png";
+import { PetdexSprite } from "./PetdexSprite";
+import { getPetdexTemplate, type PetdexSpriteStateId } from "./petdexCatalog";
 import type { PetProfile, PetRigAsset } from "./petProfile";
 
 type PetAvatarProps = {
@@ -31,18 +32,23 @@ export function PetAvatar({
   onPointerCancel,
 }: PetAvatarProps) {
   const customRig = profile.appearance === "layered-image" && asset;
+  const petdexTemplate = profile.appearance === "petdex-sprite" ? getPetdexTemplate(profile.petdexSlug) : null;
+  const petdexScale = size === "stage" ? 0.82 : size === "overlay" ? 0.62 : 0.36;
 
   return (
     <button
-      className={`petAvatar petAvatar-${size} species-${profile.species} emotion-${emotion}`}
+      className={`petAvatar petAvatar-${size} species-${profile.species} emotion-${emotion} ${
+        petdexTemplate ? "avatarPetdexRig" : customRig ? "avatarLayeredRig" : "avatarProceduralRig"
+      }`}
       style={
         {
           "--pet-primary": profile.primaryColor,
           "--pet-accent": profile.accentColor,
+          "--petdex-accent": petdexTemplate?.accentColor,
         } as CSSProperties
       }
       type="button"
-      aria-label={`${profile.name} desktop pet`}
+      aria-label={`${profile.name} 桌面宠物`}
       data-draggable={draggable}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
@@ -52,7 +58,9 @@ export function PetAvatar({
       onPointerCancel={onPointerCancel}
     >
       <span className="petGlow" />
-      {customRig ? (
+      {petdexTemplate ? (
+        <PetdexSprite template={petdexTemplate} state={petdexStateForEmotion(emotion)} scale={petdexScale} label={`${profile.name} 的 Petdex 形象`} />
+      ) : customRig ? (
         <span className={`petRig motion-${asset.settings.motionStyle}`}>
           {asset.layers.map((layer) => (
             <span
@@ -64,22 +72,68 @@ export function PetAvatar({
             </span>
           ))}
         </span>
-      ) : profile.species === "qbot-fox" || profile.appearance === "classic" ? (
-        <span className="petMascot">
-          <img className="petMascotImage" src={qbotMascotUrl} alt="" draggable={false} />
-        </span>
       ) : (
-        <span className="petBody">
-          <span className="petEar left" />
-          <span className="petEar right" />
-          {profile.accessory !== "none" ? <span className={`petAccessory ${profile.accessory}`} /> : null}
-          <span className="petFace">
-            <span className="petEye left" />
-            <span className="petEye right" />
-            <span className="petMouth" />
+        <span className="petModel" aria-hidden="true">
+          <span className="petModelShadow" />
+          <span className="petModelStage">
+            <span className="petModelTail">
+              <span />
+            </span>
+            <span className="petModelLeg petModelLegLeft">
+              <span />
+            </span>
+            <span className="petModelLeg petModelLegRight">
+              <span />
+            </span>
+            <span className="petModelTorso">
+              <span className="petModelBelly" />
+              <span className="petModelChestLight" />
+            </span>
+            <span className="petModelArm petModelArmLeft">
+              <span />
+            </span>
+            <span className="petModelArm petModelArmRight">
+              <span />
+            </span>
+            <span className="petModelHead">
+              <span className="petModelEar petModelEarLeft">
+                <span />
+              </span>
+              <span className="petModelEar petModelEarRight">
+                <span />
+              </span>
+              <span className="petModelFacePlate" />
+              <span className="petModelEye petModelEyeLeft" />
+              <span className="petModelEye petModelEyeRight" />
+              <span className="petModelCheek petModelCheekLeft" />
+              <span className="petModelCheek petModelCheekRight" />
+              <span className="petModelMuzzle">
+                <span className="petModelNose" />
+                <span className="petModelMouth" />
+              </span>
+            </span>
+            {profile.accessory !== "none" ? (
+              <span className={`petModelAccessory ${profile.accessory}`}>
+                <span />
+              </span>
+            ) : null}
+            <span className="petModelSpark petModelSparkOne" />
+            <span className="petModelSpark petModelSparkTwo" />
           </span>
         </span>
       )}
     </button>
   );
+}
+
+function petdexStateForEmotion(emotion: PetEmotion): PetdexSpriteStateId {
+  const states: Record<PetEmotion, PetdexSpriteStateId> = {
+    idle: "idle",
+    listening: "waiting",
+    thinking: "review",
+    speaking: "waving",
+    celebrating: "jumping",
+    needs_attention: "jumping",
+  };
+  return states[emotion];
 }

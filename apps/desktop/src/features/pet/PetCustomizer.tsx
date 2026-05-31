@@ -1,7 +1,9 @@
-import { CheckCircle2, ImagePlus, Upload, Wand2 } from "lucide-react";
+import { Upload, Wand2 } from "lucide-react";
 import { useState } from "react";
 import { PetImageStudio } from "./PetImageStudio";
 import { PetAvatar } from "./PetAvatar";
+import { PetdexSprite } from "./PetdexSprite";
+import { getPetdexTemplate, petdexTemplates } from "./petdexCatalog";
 import type { PetProfile, PetRigAsset } from "./petProfile";
 import { accessoryOptions, paletteOptions, speciesOptions } from "./petProfile";
 
@@ -15,6 +17,12 @@ type PetCustomizerProps = {
 
 export function PetCustomizer({ profile, asset, onChange, onSaveAsset, onDeleteAsset }: PetCustomizerProps) {
   const [studioOpen, setStudioOpen] = useState(false);
+  const currentPetdexTemplate = profile.appearance === "petdex-sprite" ? getPetdexTemplate(profile.petdexSlug) : null;
+  const currentAppearanceLabel = currentPetdexTemplate
+    ? `Petdex 模板: ${currentPetdexTemplate.displayName}`
+    : profile.appearance === "layered-image" && asset
+      ? "自定义图片"
+      : "QBot 立体狐猫";
 
   return (
     <section className="customizationPage" aria-label="宠物图片工作室">
@@ -23,7 +31,6 @@ export function PetCustomizer({ profile, asset, onChange, onSaveAsset, onDeleteA
           <Wand2 size={28} />
           宠物图片工作室
         </h2>
-        <p>调整 BabyQ 的外观，支持透明图层导入与本地微调。</p>
       </div>
 
       <div className="customWorkspace">
@@ -34,7 +41,7 @@ export function PetCustomizer({ profile, asset, onChange, onSaveAsset, onDeleteA
           </h3>
           <div className="petPreviewStage">
             <PetAvatar profile={profile} asset={asset} emotion="idle" />
-            <div className="currentPetBadge">当前形象: {profile.appearance === "layered-image" && asset ? "自定义图片" : "QBot 立体狐猫"}</div>
+            <div className="currentPetBadge">当前形象: {currentAppearanceLabel}</div>
           </div>
         </section>
 
@@ -46,13 +53,8 @@ export function PetCustomizer({ profile, asset, onChange, onSaveAsset, onDeleteA
 
           <button className="importPetButton" type="button" onClick={() => setStudioOpen(true)}>
             <Upload size={18} />
-            导入新宠物图片
+            {asset ? "编辑宠物图片" : "导入新宠物图片"}
           </button>
-
-          <div className="cleanBadge">
-            <CheckCircle2 size={18} />
-            清除接近边缘颜色的背景
-          </div>
 
           <label>
             <span>名字</span>
@@ -96,11 +98,27 @@ export function PetCustomizer({ profile, asset, onChange, onSaveAsset, onDeleteA
 
           <div className="appearanceCard">
             <span>图片形象</span>
-            <p>{profile.appearance === "layered-image" && asset ? "正在使用自定义分层形象" : "默认使用 QBot 立体卡通动物预设"}</p>
-            <button className="imageStudioButton" type="button" onClick={() => setStudioOpen(true)}>
-              <ImagePlus size={15} />
-              {asset ? "编辑图片形象" : "从图片生成"}
-            </button>
+            <p>
+              {currentPetdexTemplate
+                ? `正在使用 Petdex 模板，作者 ${currentPetdexTemplate.submittedBy}`
+                : profile.appearance === "layered-image" && asset
+                  ? "正在使用自定义分层形象"
+                  : "默认使用 QBot 立体卡通动物预设"}
+            </p>
+            <div className="petdexTemplateGrid" aria-label="Petdex 模板">
+              {petdexTemplates.map((template) => (
+                <button
+                  className={currentPetdexTemplate?.slug === template.slug ? "active" : ""}
+                  type="button"
+                  key={template.slug}
+                  title={`Petdex: ${template.displayName} by ${template.submittedBy}`}
+                  onClick={() => onChange({ ...profile, appearance: "petdex-sprite", petdexSlug: template.slug, assetId: undefined })}
+                >
+                  <PetdexSprite template={template} state="idle" scale={0.2} animated={false} />
+                  <span>{template.displayName}</span>
+                </button>
+              ))}
+            </div>
             {profile.appearance === "layered-image" ? (
               <button className="classicAvatarButton" type="button" onClick={() => onChange({ ...profile, appearance: "classic" })}>
                 恢复默认造型
@@ -108,6 +126,15 @@ export function PetCustomizer({ profile, asset, onChange, onSaveAsset, onDeleteA
             ) : asset ? (
               <button className="classicAvatarButton" type="button" onClick={() => onChange({ ...profile, appearance: "layered-image", assetId: asset.id })}>
                 使用已生成形象
+              </button>
+            ) : null}
+            {profile.appearance !== "petdex-sprite" ? (
+              <button
+                className="classicAvatarButton"
+                type="button"
+                onClick={() => onChange({ ...profile, appearance: "petdex-sprite", petdexSlug: getPetdexTemplate(profile.petdexSlug).slug, assetId: undefined })}
+              >
+                使用 Petdex 模板
               </button>
             ) : null}
             {asset ? (

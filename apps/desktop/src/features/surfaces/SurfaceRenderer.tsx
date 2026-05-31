@@ -1,5 +1,6 @@
 import { CalendarDays, Check, ExternalLink, Pause, Play, Plus, Search, Sparkles, Volume2 } from "lucide-react";
 import type { ComponentNode, SurfaceSpec, UIAction } from "@pet/protocol";
+import type { CSSProperties } from "react";
 
 type SurfaceRendererProps = {
   surface: SurfaceSpec;
@@ -57,7 +58,7 @@ export function SurfaceRenderer({ surface, onAction }: SurfaceRendererProps) {
         </div>
         <small>{new Date(surface.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</small>
       </div>
-      <ComponentRenderer node={surface.layout} />
+      <ComponentRenderer node={surface.layout} surface={surface} onAction={onAction} />
       {surface.actions?.length ? (
         <div className="surfaceActions">
           {surface.actions.map((action) => {
@@ -84,13 +85,13 @@ function EmptySurface() {
   );
 }
 
-function ComponentRenderer({ node }: { node: ComponentNode }) {
+function ComponentRenderer({ node, surface, onAction }: { node: ComponentNode; surface: SurfaceSpec; onAction: (action: UIAction, surface: SurfaceSpec) => void | Promise<void> }) {
   switch (node.kind) {
     case "stack":
       return (
         <div className={`stack ${node.direction ?? "column"} gap-${node.gap ?? "md"}`}>
           {node.children.map((child, index) => (
-            <ComponentRenderer node={child} key={`${child.kind}-${index}`} />
+            <ComponentRenderer node={child} surface={surface} onAction={onAction} key={`${child.kind}-${index}`} />
           ))}
         </div>
       );
@@ -99,13 +100,16 @@ function ComponentRenderer({ node }: { node: ComponentNode }) {
     case "list":
       return (
         <div className="surfaceList">
-          {node.items.map((item) => (
-            <button type="button" key={item.id}>
-              <span>{item.title}</span>
-              {item.description ? <small>{item.description}</small> : null}
-              {item.meta ? <em>{item.meta}</em> : null}
-            </button>
-          ))}
+          {node.items.map((item) => {
+            const itemAction = item.actionId ? surface.actions?.find((action) => action.id === item.actionId) : undefined;
+            return (
+              <button type="button" key={item.id} disabled={!itemAction} onClick={itemAction ? () => void onAction(itemAction, surface) : undefined}>
+                <span>{item.title}</span>
+                {item.description ? <small>{item.description}</small> : null}
+                {item.meta ? <em>{item.meta}</em> : null}
+              </button>
+            );
+          })}
         </div>
       );
     case "table":
@@ -151,26 +155,38 @@ function ComponentRenderer({ node }: { node: ComponentNode }) {
             <h3>{node.title}</h3>
             <p>{node.subtitle}</p>
             <div className="mediaControls">
-              {node.controls.map((control) => (
-                <button type="button" key={control} aria-label={control}>
-                  {control === "play" ? <Play size={16} /> : control === "pause" ? <Pause size={16} /> : control === "open" ? <ExternalLink size={16} /> : <Plus size={16} />}
-                </button>
-              ))}
+              {node.controls.map((control) => {
+                const controlAction = surface.actions?.find((action) => action.id === control || action.icon === control);
+                return (
+                  <button type="button" key={control} aria-label={control} onClick={controlAction ? () => void onAction(controlAction, surface) : undefined}>
+                    {control === "play" ? <Play size={16} /> : control === "pause" ? <Pause size={16} /> : control === "open" ? <ExternalLink size={16} /> : <Plus size={16} />}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </section>
       );
-    case "form":
+    case "form": {
+      const submitAction = surface.actions?.find((action) => action.id === node.submitActionId);
       return (
-        <form className="surfaceForm">
+        <form
+          className="surfaceForm"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (submitAction) void onAction(submitAction, surface);
+          }}
+        >
           {node.fields.map((field) => (
             <label key={field.id}>
               <span>{field.label}</span>
               {field.type === "textarea" ? <textarea defaultValue={field.value} /> : <input type={field.type === "date" || field.type === "time" ? field.type : "text"} defaultValue={field.value} />}
             </label>
           ))}
+          {submitAction ? <button type="submit">{submitAction.label}</button> : null}
         </form>
       );
+    }
     case "metric-row":
       return (
         <div className="metricRow">
@@ -182,7 +198,54 @@ function ComponentRenderer({ node }: { node: ComponentNode }) {
           ))}
         </div>
       );
+    case "pie-chart":
+      return <PieChartRenderer node={node} />;
     default:
       return null;
   }
+}
+
+function PieChartRenderer({ node }: { node: Extract<ComponentNode, { kind: "pie-chart" }> }) {
+  const palette = ["#2563eb", "#16a34a", "#d97706", "#7c3aed", "#dc2626", "#0891b2", "#4b5563", "#be185d"];
+  const total = node.segments.reduce((sum, segment) => sum + Math.max(segment.value, 0), 0);
+  let cursor = 0;
+  const stops = node.segments
+    .map((segment, index) => {
+      const start = total ? (cursor / total) * 100 : 0;
+      cursor += Math.max(segment.value, 0);
+      const end = total ? (cursor / total) * 100 : 0;
+      const color = segment.color ?? palette[index % palette.length];
+      return `${color} ${start}% ${end}%`;
+    })
+    .join(", ");
+  const chartStyle = { "--pie-fill": `conic-gradient(${stops || "#d7ddd8 0 100%"})` } as CSSProperties;
+
+  return (
+    <section className="pieChart">
+      {node.title ? <h3>{node.title}</h3> : null}
+      <div className="pieChartBody">
+        <div className="pieDonut" style={chartStyle} aria-label={node.title ?? "饼状图"}>
+          <span>{formatChartValue(total)}</span>
+        </div>
+        <div className="pieLegend">
+          {node.segments.map((segment, index) => {
+            const color = segment.color ?? palette[index % palette.length];
+            const percent = total ? Math.round((segment.value / total) * 100) : 0;
+            return (
+              <div className="pieLegendItem" key={`${segment.label}-${index}`}>
+                <i style={{ background: color }} />
+                <span>{segment.label}</span>
+                <strong>{formatChartValue(segment.value)}</strong>
+                <em>{percent}%</em>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function formatChartValue(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }

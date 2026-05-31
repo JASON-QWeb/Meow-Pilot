@@ -1,25 +1,48 @@
-import { ExternalLink, Mic, Music, Send, Square, Video, Volume2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import type { ChatMessage, ChatSendPayload, MediaPlayerNode, SurfaceSpec, VoiceSpeakPayload, VoiceTranscribePayload } from "@pet/protocol";
-import { starterPrompts } from "../../config/starterPrompts";
+import { ExternalLink, Mic, Music, Plus, Send, Square, Trash2, Video, Volume2 } from "lucide-react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import type { ChatMessage, ChatSendPayload, MediaPlayerNode, SessionSummary, SurfaceSpec, UIAction, VoiceSpeakPayload, VoiceTranscribePayload } from "@pet/protocol";
+import { SurfaceRenderer } from "../surfaces/SurfaceRenderer";
 
 type ChatPanelProps = {
+  sessions: SessionSummary[];
+  activeSessionId: string | null;
   messages: ChatMessage[];
   draft: string;
   draftSurface?: SurfaceSpec | null;
   petName: string;
+  onSelectSession: (sessionId: string) => void | Promise<void>;
+  onCreateSession: () => void | Promise<void>;
+  onDeleteSession: (sessionId: string) => void | Promise<void>;
   onSend: (text: string) => unknown | Promise<unknown>;
   onSendVoice: (text: string) => Promise<ChatSendPayload | undefined>;
   onTranscribe: (audioData: string) => Promise<VoiceTranscribePayload>;
   onSpeak: (text: string) => Promise<VoiceSpeakPayload>;
+  onSurfaceAction: (action: UIAction, surface: SurfaceSpec) => void | Promise<void>;
+  isAgentRunning?: boolean;
 };
 
 type VoicePhase = "idle" | "recording" | "transcribing" | "synthesizing" | "playing" | "error";
 
-export function ChatPanel({ messages, draft, draftSurface, petName, onSend, onSendVoice, onTranscribe, onSpeak }: ChatPanelProps) {
+export function ChatPanel({
+  sessions,
+  activeSessionId,
+  messages,
+  draft,
+  draftSurface,
+  petName,
+  onSelectSession,
+  onCreateSession,
+  onDeleteSession,
+  onSend,
+  onSendVoice,
+  onTranscribe,
+  onSpeak,
+  onSurfaceAction,
+  isAgentRunning = false,
+}: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [phase, setPhase] = useState<VoicePhase>("idle");
-  const [voiceNotice, setVoiceNotice] = useState("点击麦克风开始语音对话；优先使用小米 MiMo 语音模型。");
+  const [voiceNotice, setVoiceNotice] = useState("");
   const [pendingVoiceRunId, setPendingVoiceRunId] = useState<string | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -59,60 +82,97 @@ export function ChatPanel({ messages, draft, draftSurface, petName, onSend, onSe
     await onSend(trimmed);
   }
 
+  const activeSession = sessions.find((session) => session.id === activeSessionId);
+
   return (
     <section className="chatPanel" aria-label="对话">
+      <aside className="chatSessionRail" aria-label="会话列表">
+        <div className="chatSessionTitle">
+          <div>
+            <span>Sessions</span>
+            <strong>会话</strong>
+          </div>
+          <button className="sessionCreateButton" type="button" onClick={() => void onCreateSession()} aria-label="新建会话" title="新建会话">
+            <Plus size={16} />
+          </button>
+        </div>
+        <div className="chatSessionList">
+          {sessions.map((session) => (
+            <div className={`chatSessionItem ${session.id === activeSessionId ? "active" : ""}`} key={session.id}>
+              <button className="chatSessionSelect" type="button" onClick={() => void onSelectSession(session.id)}>
+                <span>{session.title}</span>
+                <small>{formatSessionMeta(session)}</small>
+              </button>
+              <button className="chatSessionDelete" type="button" onClick={() => void onDeleteSession(session.id)} aria-label={`删除${session.title}`} title="删除会话">
+                <Trash2 size={14} />
+              </button>
+            </div>
+          ))}
+          {!sessions.length ? <p className="chatSessionEmpty">还没有会话。</p> : null}
+        </div>
+      </aside>
+
+      <div className="chatConversation">
+        <div className="chatConversationHeader">
+          <strong>{activeSession?.title ?? "当前会话"}</strong>
+          <span>{activeSession ? `${activeSession.messageCount} 条消息` : "准备中"}</span>
+        </div>
       <div className="messageList">
         {messages.map((message) => (
-          <article className={`message ${message.role}`} key={message.id}>
+          <article className={`message ${message.role} ${message.surface ? "hasSurface" : ""}`} key={message.id}>
             <span>{message.role === "user" ? "你" : petName}</span>
-            <p>{message.content}</p>
-            {message.surface ? <InlineSurface surface={message.surface} /> : null}
+            {message.content ? <MarkdownText text={message.content} /> : null}
+            {message.surface ? <InlineSurface surface={message.surface} onAction={onSurfaceAction} /> : null}
           </article>
         ))}
         {draft || draftSurface ? (
-          <article className="message assistant streaming">
+          <article className={`message assistant streaming ${draftSurface ? "hasSurface" : ""}`}>
             <span>{petName}</span>
-            {draft ? <p>{draft}</p> : null}
-            {draftSurface ? <InlineSurface surface={draftSurface} /> : null}
+            {draft ? <MarkdownText text={draft} /> : null}
+            {draftSurface ? <InlineSurface surface={draftSurface} onAction={onSurfaceAction} /> : null}
           </article>
         ) : null}
-      </div>
+        {isAgentRunning && !draft && !draftSurface ? (
+          <article className="message assistant streaming waiting">
+            <span>{petName}</span>
+            <div className="messageLoading">
+              <i />
+              <strong>正在整理</strong>
+            </div>
+          </article>
+        ) : null}
+        </div>
 
-      <div className="starterRow">
-        {starterPrompts.map((prompt) => (
-          <button type="button" key={prompt} onClick={() => void send(prompt)}>
-            {prompt}
-          </button>
-        ))}
-      </div>
-
-      <form
-        className="composer"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void send(input);
-        }}
-      >
-        <button
-          className={`iconButton ${phase === "recording" ? "listening" : ""}`}
-          type="button"
-          aria-label={phase === "recording" ? "停止并发送语音" : "开始语音输入"}
-          title={phase === "recording" ? "停止并发送语音" : "开始语音对话"}
-          onClick={() => void captureVoice()}
+        <form
+          className="composer"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void send(input);
+          }}
         >
-          {phase === "recording" ? <Square size={16} /> : <Mic size={18} />}
-        </button>
-        <button className="iconButton" type="button" aria-label="朗读最近回复" title="朗读最近回复" onClick={speakLatestAnswer}>
-          <Volume2 size={18} />
-        </button>
-        <input value={input} onChange={(event) => setInput(event.target.value)} placeholder="输入问题，或点击麦克风直接对话" />
-        <button className="iconButton primary" type="submit" aria-label="发送消息">
-          <Send size={18} />
-        </button>
-      </form>
-      <p className={`voiceStatus ${phase}`} aria-live="polite">
-        {voiceNotice}
-      </p>
+          <button
+            className={`iconButton ${phase === "recording" ? "listening" : ""}`}
+            type="button"
+            aria-label={phase === "recording" ? "停止并发送语音" : "开始语音输入"}
+            title={phase === "recording" ? "停止并发送语音" : "开始语音对话"}
+            onClick={() => void captureVoice()}
+          >
+            {phase === "recording" ? <Square size={16} /> : <Mic size={18} />}
+          </button>
+          <button className="iconButton" type="button" aria-label="朗读最近回复" title="朗读最近回复" onClick={speakLatestAnswer}>
+            <Volume2 size={18} />
+          </button>
+          <input value={input} onChange={(event) => setInput(event.target.value)} placeholder="输入消息，或使用麦克风对话" />
+          <button className="iconButton primary" type="submit" aria-label="发送消息">
+            <Send size={18} />
+          </button>
+        </form>
+        {voiceNotice ? (
+          <p className={`voiceStatus ${phase}`} aria-live="polite">
+            {voiceNotice}
+          </p>
+        ) : null}
+      </div>
     </section>
   );
 
@@ -315,21 +375,172 @@ export function ChatPanel({ messages, draft, draftSurface, petName, onSend, onSe
   }
 }
 
-function InlineSurface({ surface }: { surface: SurfaceSpec }) {
-  if (surface.layout.kind !== "media-player") return null;
+function formatSessionMeta(session: SessionSummary) {
+  const updated = new Intl.DateTimeFormat("zh-CN", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(session.updatedAt));
+  return `${session.messageCount} 条 · ${updated}`;
+}
+
+function MarkdownText({ text }: { text: string }) {
+  return <div className="messageMarkdown">{renderMarkdownBlocks(text)}</div>;
+}
+
+function renderMarkdownBlocks(text: string) {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const blocks: ReactNode[] = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index] ?? "";
+    if (!line.trim()) {
+      index += 1;
+      continue;
+    }
+
+    const fence = line.match(/^```([a-zA-Z0-9_-]*)/);
+    if (fence) {
+      const language = fence[1] ?? "";
+      const code: string[] = [];
+      index += 1;
+      while (index < lines.length && !/^```/.test(lines[index] ?? "")) {
+        code.push(lines[index] ?? "");
+        index += 1;
+      }
+      if (index < lines.length) index += 1;
+      blocks.push(
+        <pre key={`code-${blocks.length}`}>
+          {language ? <span>{language}</span> : null}
+          <code>{code.join("\n")}</code>
+        </pre>,
+      );
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      const level = heading[1]?.length ?? 1;
+      const content = renderInlineMarkdown(heading[2] ?? "", `h-${blocks.length}`);
+      blocks.push(level === 1 ? <h3 key={`h-${blocks.length}`}>{content}</h3> : <h4 key={`h-${blocks.length}`}>{content}</h4>);
+      index += 1;
+      continue;
+    }
+
+    if (/^\s*[-*]\s+/.test(line)) {
+      const items: ReactNode[] = [];
+      while (index < lines.length && /^\s*[-*]\s+/.test(lines[index] ?? "")) {
+        const itemText = (lines[index] ?? "").replace(/^\s*[-*]\s+/, "");
+        items.push(<li key={`li-${index}`}>{renderInlineMarkdown(itemText, `li-${index}`)}</li>);
+        index += 1;
+      }
+      blocks.push(<ul key={`ul-${blocks.length}`}>{items}</ul>);
+      continue;
+    }
+
+    if (/^\s*\d+[.)]\s+/.test(line)) {
+      const items: ReactNode[] = [];
+      while (index < lines.length && /^\s*\d+[.)]\s+/.test(lines[index] ?? "")) {
+        const itemText = (lines[index] ?? "").replace(/^\s*\d+[.)]\s+/, "");
+        items.push(<li key={`oli-${index}`}>{renderInlineMarkdown(itemText, `oli-${index}`)}</li>);
+        index += 1;
+      }
+      blocks.push(<ol key={`ol-${blocks.length}`}>{items}</ol>);
+      continue;
+    }
+
+    const paragraph: string[] = [];
+    while (
+      index < lines.length &&
+      (lines[index] ?? "").trim() &&
+      !/^```/.test(lines[index] ?? "") &&
+      !/^(#{1,3})\s+/.test(lines[index] ?? "") &&
+      !/^\s*[-*]\s+/.test(lines[index] ?? "") &&
+      !/^\s*\d+[.)]\s+/.test(lines[index] ?? "")
+    ) {
+      paragraph.push((lines[index] ?? "").trim());
+      index += 1;
+    }
+    blocks.push(<p key={`p-${blocks.length}`}>{renderInlineMarkdown(paragraph.join(" "), `p-${blocks.length}`)}</p>);
+  }
+
+  return blocks;
+}
+
+function renderInlineMarkdown(text: string, keyPrefix: string) {
+  const nodes: ReactNode[] = [];
+  const pattern = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\(https?:\/\/[^)\s]+\))/g;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text))) {
+    if (match.index > cursor) nodes.push(text.slice(cursor, match.index));
+    const token = match[0];
+    const key = `${keyPrefix}-${match.index}`;
+    if (token.startsWith("**")) {
+      nodes.push(<strong key={key}>{token.slice(2, -2)}</strong>);
+    } else if (token.startsWith("`")) {
+      nodes.push(<code key={key}>{token.slice(1, -1)}</code>);
+    } else {
+      const link = token.match(/^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/);
+      nodes.push(
+        <a key={key} href={link?.[2]} target="_blank" rel="noreferrer">
+          {link?.[1] ?? token}
+        </a>,
+      );
+    }
+    cursor = match.index + token.length;
+  }
+  if (cursor < text.length) nodes.push(text.slice(cursor));
+  return nodes.map((node, index) => <Fragment key={`${keyPrefix}-frag-${index}`}>{node}</Fragment>);
+}
+
+function InlineSurface({ surface, onAction }: { surface: SurfaceSpec; onAction: (action: UIAction, surface: SurfaceSpec) => void | Promise<void> }) {
+  if (surface.layout.kind !== "media-player") {
+    return (
+      <div className="inlineGeneratedSurface">
+        <SurfaceRenderer surface={surface} onAction={onAction} />
+      </div>
+    );
+  }
   return <InlineMediaPlayer node={surface.layout} />;
 }
 
 function InlineMediaPlayer({ node }: { node: MediaPlayerNode }) {
   const Icon = node.media === "music" ? Music : Video;
-  const playable = Boolean(node.src || node.embedUrl);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [localMedia, setLocalMedia] = useState<{ url: string; name: string; mimeType: string } | null>(null);
+  const activeSrc = localMedia?.url ?? node.src;
+  const activeMimeType = localMedia?.mimeType || node.mimeType;
+  const playable = Boolean(activeSrc || node.embedUrl);
+
+  useEffect(
+    () => () => {
+      if (localMedia?.url) URL.revokeObjectURL(localMedia.url);
+    },
+    [localMedia?.url],
+  );
+
+  function chooseLocalFile(file?: File) {
+    if (!file) return;
+    setLocalMedia((current) => {
+      if (current?.url) URL.revokeObjectURL(current.url);
+      return {
+        url: URL.createObjectURL(file),
+        name: file.name,
+        mimeType: file.type,
+      };
+    });
+  }
+
   return (
     <section className={`inlineMediaPlayer media-${node.media} status-${node.status ?? "ready"}`}>
       <div className="inlineMediaHeader">
         <Icon size={18} />
         <div>
           <strong>{node.title}</strong>
-          {node.subtitle ? <small>{node.subtitle}</small> : null}
+          {localMedia ? <small>本地文件：{localMedia.name}</small> : node.subtitle ? <small>{node.subtitle}</small> : null}
         </div>
         {node.sourceUrl ? (
           <a href={node.sourceUrl} target="_blank" rel="noreferrer" aria-label="打开媒体来源" title="打开来源">
@@ -338,15 +549,15 @@ function InlineMediaPlayer({ node }: { node: MediaPlayerNode }) {
         ) : null}
       </div>
 
-      {node.src && node.media === "music" ? (
-        <audio controls src={node.src}>
-          {node.mimeType ? <source src={node.src} type={node.mimeType} /> : null}
+      {activeSrc && node.media === "music" ? (
+        <audio controls src={activeSrc}>
+          {activeMimeType ? <source src={activeSrc} type={activeMimeType} /> : null}
         </audio>
       ) : null}
 
-      {node.src && node.media === "video" ? (
-        <video controls poster={node.thumbnailUrl} src={node.src}>
-          {node.mimeType ? <source src={node.src} type={node.mimeType} /> : null}
+      {activeSrc && node.media === "video" ? (
+        <video controls poster={node.thumbnailUrl} src={activeSrc}>
+          {activeMimeType ? <source src={activeSrc} type={activeMimeType} /> : null}
         </video>
       ) : null}
 
@@ -362,9 +573,19 @@ function InlineMediaPlayer({ node }: { node: MediaPlayerNode }) {
       {!playable ? (
         <div className="inlineMediaEmpty">
           <Volume2 size={18} />
-          <span>{node.status === "external-only" ? "该来源需要在外部打开" : "等待可播放链接"}</span>
+          <span>{node.status === "external-only" ? "该来源需要在外部打开，也可以选择本地文件。" : "选择本地文件，或发送一个可播放链接。"}</span>
+          <button type="button" onClick={() => fileInputRef.current?.click()}>
+            选择文件
+          </button>
         </div>
       ) : null}
+      <input
+        className="visuallyHidden"
+        ref={fileInputRef}
+        type="file"
+        accept={node.media === "music" ? "audio/*" : "video/*"}
+        onChange={(event) => chooseLocalFile(event.currentTarget.files?.[0])}
+      />
     </section>
   );
 }

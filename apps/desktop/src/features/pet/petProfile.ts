@@ -2,7 +2,7 @@ export type PetSpecies = "qbot-fox" | "nori-cat" | "momo-blob" | "luma-star";
 
 export type PetAccessory = "none" | "bow" | "bell";
 
-export type PetAppearance = "classic" | "layered-image";
+export type PetAppearance = "classic" | "layered-image" | "petdex-sprite";
 
 export type PetArtStyle = "natural" | "sticker" | "pixel";
 
@@ -52,6 +52,7 @@ export type PetProfile = {
   accessory: PetAccessory;
   appearance?: PetAppearance;
   assetId?: string;
+  petdexSlug?: string;
 };
 
 export type PetPosition = {
@@ -60,12 +61,13 @@ export type PetPosition = {
 };
 
 export const defaultPetProfile: PetProfile = {
-  name: "BabyQ",
+  name: "Q Assistant",
   species: "qbot-fox",
-  primaryColor: "#8b5cf6",
-  accentColor: "#f04fd8",
+  primaryColor: "#111827",
+  accentColor: "#9ca3af",
   accessory: "none",
-  appearance: "classic",
+  appearance: "petdex-sprite",
+  petdexSlug: "noir-webling",
 };
 
 export const defaultPetPosition: PetPosition = {

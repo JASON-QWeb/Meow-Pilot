@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "ai.petagent.desktop",
   "build": {
-    "beforeDevCommand": "pnpm dev:desktop",
+    "beforeDevCommand": "pnpm dev",
     "beforeBuildCommand": "pnpm --filter @pet/protocol build && pnpm --filter @pet/agent-runtime build && pnpm --filter @pet/desktop build",
     "devUrl": "http://127.0.0.1:5173",
     "frontendDist": "../dist"

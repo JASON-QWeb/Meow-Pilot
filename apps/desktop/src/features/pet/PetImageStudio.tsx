@@ -142,7 +142,7 @@ export function PetImageStudio({ asset, onApply, onClose }: PetImageStudioProps)
                 checked={settings.removeBackground}
                 onChange={(event) => setSettings({ ...settings, removeBackground: event.target.checked })}
               />
-              清除接近边缘颜色的背景
+              边缘去背
             </label>
             {source?.hasTransparency ? <p className="studioHint">检测到透明 PNG，将直接保留原有透明边缘。</p> : null}
             <RangeControl

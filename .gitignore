@@ -13,3 +13,6 @@ apps/desktop/src-tauri/gen/
 .DS_Store
 *.log
 coverage/
+
+.playwright-cli
+output/playwright
