@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Brain, Check, Cpu, Heart, KeyRound, MessageCircle, Mic2, RefreshCw, Send, Shield, Sparkles, UserPlus, Zap } from "lucide-react";
+import { Brain, Check, Cpu, Heart, KeyRound, Mic2, PackagePlus, RefreshCw, Send, Shield, Sparkles, X, Zap } from "lucide-react";
 import { PetdexSprite } from "../pet/PetdexSprite";
 import { getPetdexTemplate, pickFriendPetdexTemplate } from "../pet/petdexCatalog";
+import type { PetProfile } from "../pet/petProfile";
+import { usePersistentState } from "../../lib/usePersistentState";
 import type {
   AccountProfile,
   AiProviderId,
@@ -16,6 +18,7 @@ import type {
 
 type RuntimeSidePanelProps = {
   view?: "friends" | "settings" | "memory" | "skills";
+  petProfile?: PetProfile;
   memories: Memory[];
   memoryProposal: Memory | null;
   skills: SkillSummary[];
@@ -49,6 +52,10 @@ type FriendCard = {
 type SkillCatalogItem = SkillSummary & {
   origin: "runtime" | "codex" | "local";
   maturity: "active" | "available" | "reference";
+};
+
+type PeerSkillOffer = SkillSummary & {
+  pitch: string;
 };
 
 const providerOptions: Array<{ id: AiProviderId; label: string; defaultModel: string; defaultBaseUrl?: string }> = [
@@ -299,6 +306,75 @@ const extraSkills: SkillCatalogItem[] = [
   },
 ];
 
+const defaultInstalledFriendSkills: SkillSummary[] = [];
+
+const friendSkillOfferPool: PeerSkillOffer[] = [
+  {
+    name: "task-weaver",
+    description: "把聊天、会议和零散提醒整理成今日任务，并标出可立即执行的第一步。",
+    category: "productivity",
+    permissions: ["calendar:read", "memory:read"],
+    enabled: true,
+    pitch: "适合每天早上同步计划和晚上复盘。",
+  },
+  {
+    name: "research-snapshot",
+    description: "把一次搜索整理成来源卡、关键结论和继续追问列表。",
+    category: "research",
+    permissions: ["network:web", "file:write"],
+    enabled: true,
+    pitch: "适合做选题、竞品和资料速读。",
+  },
+  {
+    name: "ui-polish-review",
+    description: "快速审查界面层级、间距、状态和移动端适配风险。",
+    category: "creative",
+    permissions: ["browser:local", "file:read"],
+    enabled: true,
+    pitch: "适合前端页面交付前做一次视觉检查。",
+  },
+  {
+    name: "focus-soundboard",
+    description: "根据当前任务生成专注歌单、番茄钟节奏和收尾提示。",
+    category: "media",
+    permissions: ["network:music-provider"],
+    enabled: true,
+    pitch: "适合写作、编码和整理资料时使用。",
+  },
+  {
+    name: "issue-briefing",
+    description: "把报错、日志和改动摘要压缩成可交接的问题说明。",
+    category: "dev",
+    permissions: ["file:read"],
+    enabled: true,
+    pitch: "适合把调试现场交给另一个智能体继续处理。",
+  },
+  {
+    name: "memory-merge",
+    description: "把新的偏好和稳定习惯合并进长期记忆，保留隐私边界。",
+    category: "productivity",
+    permissions: ["memory:read", "memory:write"],
+    enabled: true,
+    pitch: "适合频繁微调宠物人格和工作习惯的人。",
+  },
+  {
+    name: "doc-checkline",
+    description: "检查文档结构、缺失段落、格式一致性和交付前清单。",
+    category: "files",
+    permissions: ["file:read", "file:write"],
+    enabled: true,
+    pitch: "适合合同、说明书和周报交付前整理。",
+  },
+  {
+    name: "prompt-tuner",
+    description: "把一段粗略指令改成边界清楚、可复用的执行提示。",
+    category: "dev",
+    permissions: ["file:read"],
+    enabled: true,
+    pitch: "适合沉淀自己的工作流模板。",
+  },
+];
+
 const categoryLabels: Record<string, string> = {
   productivity: "效率",
   media: "媒体",
@@ -313,6 +389,7 @@ const categoryOrder = ["productivity", "media", "research", "browser", "files", 
 
 export function RuntimeSidePanel({
   view = "settings",
+  petProfile,
   memories,
   memoryProposal,
   skills,
@@ -333,6 +410,9 @@ export function RuntimeSidePanel({
   const [friendHandle, setFriendHandle] = useState("");
   const [friendNotice, setFriendNotice] = useState("");
   const [friendMessageDrafts, setFriendMessageDrafts] = useState<Record<string, string>>({});
+  const [activeExchangeFriendId, setActiveExchangeFriendId] = useState<string | null>(null);
+  const [exchangePulseSkillName, setExchangePulseSkillName] = useState<string | null>(null);
+  const [installedFriendSkills, setInstalledFriendSkills] = usePersistentState<SkillSummary[]>("pet.installed.friend.skills", defaultInstalledFriendSkills);
   const [providerId, setProviderId] = useState<AiProviderId>("deepseek");
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("deepseek-chat");
@@ -365,13 +445,31 @@ export function RuntimeSidePanel({
     return [...mockFriends, ...realCards].slice(0, 16);
   }, [friends]);
 
-  const skillGroups = useMemo(() => groupSkills(skills), [skills]);
+  const skillGroups = useMemo(() => groupSkills(skills, installedFriendSkills), [installedFriendSkills, skills]);
+  const activeExchangeFriend = useMemo(
+    () => friendCards.find((friend) => friend.id === activeExchangeFriendId) ?? null,
+    [activeExchangeFriendId, friendCards],
+  );
+  const activeExchangeSkills = useMemo(() => (activeExchangeFriend ? offeredSkillsForFriend(activeExchangeFriend) : []), [activeExchangeFriend]);
+  const installedSkillNames = useMemo(
+    () => new Set([...skills, ...installedFriendSkills, ...extraSkills].map((skill) => skill.name)),
+    [installedFriendSkills, skills],
+  );
+  const localPetTemplate = getPetdexTemplate(petProfile?.appearance === "petdex-sprite" ? petProfile.petdexSlug : "skillbit");
+  const localPetName = petProfile?.name?.trim() || "我的宠物";
 
   useEffect(() => {
     setPetPersonaDraft(defaultPetPersona(memoryText));
     setOwnerPreferenceDraft(defaultOwnerPreference(memoryText));
     setMemoryDraft(extractSection(memoryText, "长期记忆") || memoryText);
   }, [memoryText]);
+
+  useEffect(() => {
+    if (!activeExchangeFriendId) return;
+    if (!friendCards.some((friend) => friend.id === activeExchangeFriendId)) {
+      setActiveExchangeFriendId(null);
+    }
+  }, [activeExchangeFriendId, friendCards]);
 
   async function submitSignIn() {
     const value = displayName.trim();
@@ -474,7 +572,7 @@ export function RuntimeSidePanel({
 
         <section className="friendCardGrid">
           {friendCards.map((friend) => (
-            <article className={`friendCard tone-${friend.tone}`} key={friend.id}>
+            <article className={`friendCard tone-${friend.tone} ${activeExchangeFriendId === friend.id ? "exchange-open" : ""}`} key={friend.id}>
               <div className="friendPetVisual">
                 <PetdexSprite template={getPetdexTemplate(friend.petdexSlug)} state="idle" scale={0.34} animated={false} label={`${friend.petName} 的宠物形象`} />
               </div>
@@ -504,9 +602,14 @@ export function RuntimeSidePanel({
                 </button>
               </form>
               <div className="friendActions">
-                <button type="button" onClick={() => void exchangeSkill(friend)}>
+                <button
+                  type="button"
+                  onClick={() => exchangeSkill(friend)}
+                  aria-expanded={activeExchangeFriendId === friend.id}
+                  aria-label={`查看 ${friend.petName} 展示的 Skill`}
+                >
                   <RefreshCw size={15} />
-                  交换 Skill
+                  {activeExchangeFriendId === friend.id ? "正在交换" : "交换 Skill"}
                 </button>
               </div>
             </article>
@@ -518,6 +621,90 @@ export function RuntimeSidePanel({
             <strong>最近交换</strong>
             <p>{latestExchange.summary}</p>
           </article>
+        ) : null}
+
+        {activeExchangeFriend ? (
+          <section className="skillExchangeBackdrop" role="presentation" onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeExchangeModal();
+          }}>
+            <article
+              className={`skillExchangeModal tone-${activeExchangeFriend.tone} ${exchangePulseSkillName ? "is-transferring" : ""}`}
+              role="dialog"
+              aria-modal="true"
+              aria-label={`${activeExchangeFriend.petName} 的 Skill 交换`}
+            >
+              <header className="exchangeModalHeader">
+                <div>
+                  <p className="eyebrow">Skill exchange</p>
+                  <h3>{activeExchangeFriend.petName} 正在展示 Skill</h3>
+                  <span>{activeExchangeFriend.displayName} · {activeExchangeFriend.handle} · {activeExchangeSkills.length} 个公开选择</span>
+                </div>
+                <button className="exchangeCloseButton" type="button" onClick={closeExchangeModal} aria-label="关闭 Skill 交换弹窗">
+                  <X size={16} />
+                </button>
+              </header>
+
+              <section className="exchangePetStage" aria-label="双方宠物交换区">
+                <article className="exchangePetNode peer">
+                  <PetdexSprite
+                    className="exchangePetSprite"
+                    template={getPetdexTemplate(activeExchangeFriend.petdexSlug)}
+                    state={exchangePulseSkillName ? "waving" : "idle"}
+                    scale={0.56}
+                    animated
+                    label={`${activeExchangeFriend.petName} 的宠物形象`}
+                  />
+                  <span>{activeExchangeFriend.mood}</span>
+                  <strong>{activeExchangeFriend.petName}</strong>
+                </article>
+
+                <div className="exchangeTransferRail" aria-live="polite">
+                  <span className="exchangePacket">
+                    <PackagePlus size={17} />
+                  </span>
+                  <strong>{exchangePulseSkillName ?? "选择一个 Skill 开始交换"}</strong>
+                </div>
+
+                <article className="exchangePetNode local">
+                  <PetdexSprite
+                    className="exchangePetSprite"
+                    template={localPetTemplate}
+                    state={exchangePulseSkillName ? "review" : "idle"}
+                    scale={0.56}
+                    animated
+                    label={`${localPetName} 的宠物形象`}
+                  />
+                  <span>我的库</span>
+                  <strong>{localPetName}</strong>
+                </article>
+              </section>
+
+              <section className="exchangeSkillShelf modalShelf" aria-label="可安装 Skill">
+                {activeExchangeSkills.map((skill) => {
+                  const installed = installedSkillNames.has(skill.name);
+                  const transferring = exchangePulseSkillName === skill.name;
+                  return (
+                    <button
+                      className={`exchangeSkillCard ${installed ? "installed" : ""} ${transferring ? "transferring" : ""}`}
+                      type="button"
+                      key={`${activeExchangeFriend.id}-${skill.name}`}
+                      disabled={installed || transferring}
+                      onClick={() => void installFriendSkill(activeExchangeFriend, skill)}
+                    >
+                      <span className="exchangeSkillCategory">{categoryLabels[skill.category] ?? skill.category}</span>
+                      <strong>{skill.name}</strong>
+                      <p>{skill.description}</p>
+                      <small>{skill.pitch}</small>
+                      <span className="exchangeInstallBadge">
+                        {transferring ? <RefreshCw size={14} /> : installed ? <Check size={14} /> : <PackagePlus size={14} />}
+                        {transferring ? "交换中" : installed ? "已在库中" : "选择交换"}
+                      </span>
+                    </button>
+                  );
+                })}
+              </section>
+            </article>
+          </section>
         ) : null}
       </section>
     );
@@ -627,7 +814,7 @@ export function RuntimeSidePanel({
           <div className="skillSummaryRow">
             <span>{skillGroups.total} 个 Skill</span>
             <span>{skills.length} 个来自当前运行时</span>
-            <span>按分类展示，不执行测试</span>
+            <span>{installedFriendSkills.length} 个来自好友交换</span>
           </div>
 
           <div className="skillCategoryStack">
@@ -759,13 +946,43 @@ export function RuntimeSidePanel({
     </section>
   );
 
-  async function exchangeSkill(friend: FriendCard) {
-    if (!friend.real) {
-      setFriendNotice(`${friend.petName} 已收到 Skill 交换邀请。`);
-      return;
+  function exchangeSkill(friend: FriendCard) {
+    setActiveExchangeFriendId((current) => (current === friend.id ? null : friend.id));
+    setExchangePulseSkillName(null);
+    setFriendNotice("");
+  }
+
+  function closeExchangeModal() {
+    setActiveExchangeFriendId(null);
+    setExchangePulseSkillName(null);
+  }
+
+  async function installFriendSkill(friend: FriendCard, skill: PeerSkillOffer) {
+    const skillForLibrary: SkillSummary = {
+      name: skill.name,
+      description: skill.description,
+      category: skill.category,
+      permissions: skill.permissions,
+      enabled: true,
+      path: `friend://${friend.handle.replace(/^@/, "")}/${skill.name}`,
+    };
+
+    setExchangePulseSkillName(skill.name);
+    window.setTimeout(() => setExchangePulseSkillName((current) => (current === skill.name ? null : current)), 900);
+
+    setInstalledFriendSkills((current) => {
+      if (current.some((item) => item.name === skill.name)) return current;
+      return [skillForLibrary, ...current];
+    });
+    setFriendNotice(`已安装 ${skill.name} 到我的 Skill 库。`);
+
+    if (!friend.real) return;
+
+    try {
+      await onExchangeFriend(friend.id);
+    } catch (error) {
+      setFriendNotice(`已安装 ${skill.name}，但交换记录同步失败：${error instanceof Error ? error.message : "未知错误"}`);
     }
-    await onExchangeFriend(friend.id);
-    setFriendNotice(`已和 ${friend.petName} 交换 Skill。`);
   }
 
   function updateFriendMessage(friendId: string, value: string) {
@@ -784,14 +1001,19 @@ export function RuntimeSidePanel({
   }
 }
 
-function groupSkills(runtimeSkills: SkillSummary[]) {
+function groupSkills(runtimeSkills: SkillSummary[], installedSkills: SkillSummary[] = []) {
   const runtimeItems: SkillCatalogItem[] = runtimeSkills.map((skill) => ({
     ...skill,
     origin: "runtime",
     maturity: skill.enabled ? "active" : "available",
   }));
+  const installedItems: SkillCatalogItem[] = installedSkills.map((skill) => ({
+    ...skill,
+    origin: "local",
+    maturity: "active",
+  }));
   const seen = new Set<string>();
-  const merged = [...runtimeItems, ...extraSkills].filter((skill) => {
+  const merged = [...runtimeItems, ...installedItems, ...extraSkills].filter((skill) => {
     const key = `${skill.category}:${skill.name}`;
     if (seen.has(key)) return false;
     seen.add(key);
@@ -806,6 +1028,19 @@ function groupSkills(runtimeSkills: SkillSummary[]) {
     .filter((group) => group.items.length);
 
   return { groups, total: merged.length };
+}
+
+function offeredSkillsForFriend(friend: FriendCard) {
+  const start = hashText(`${friend.id}:${friend.handle}:${friend.petName}`) % friendSkillOfferPool.length;
+  return [0, 2, 5].map((offset) => friendSkillOfferPool[(start + offset) % friendSkillOfferPool.length]!);
+}
+
+function hashText(value: string) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+  return hash;
 }
 
 function extractSection(content: string, title: string) {

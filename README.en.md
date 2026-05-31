@@ -61,6 +61,15 @@ The Tauri app defines two windows:
 - `pet`: transparent, frameless, always-on-top desktop pet window.
 - `work`: normal work window, hidden by default and opened by clicking the pet.
 
+## Pet Appearance And Action Sheets
+
+The work window's `形象` page supports two pet asset types:
+
+- Built-in Petdex templates: 1536×1872 spritesheets with 192×208 frames and action rows for idle, running left/right, waving, jumping, failed, waiting, running, and review states.
+- Custom images: importing a JPG, PNG, or WebP generates local three-layer cutouts plus a Petdex-compatible action spritesheet with the same layout. The desktop pet prefers the custom action sheet at runtime and falls back to the layered animation for older assets.
+
+The image studio can export a Petdex-style zip package containing `pet.json` and `spritesheet.webp`. If the current WebView cannot export WebP from canvas, it exports `spritesheet.png` instead.
+
 ## Model Configuration
 
 The recommended path is to start the app and save the provider, API key, model name, and optional base URL in the `模型 API` settings panel. Local config is written to `.pet/ai-provider.json` and is not committed to git.

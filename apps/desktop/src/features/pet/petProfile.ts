@@ -1,4 +1,4 @@
-export type PetSpecies = "qbot-fox" | "nori-cat" | "momo-blob" | "luma-star";
+export type PetSpecies = "noir-webling" | "momo-blob" | "luma-star";
 
 export type PetAccessory = "none" | "bow" | "bell";
 
@@ -32,6 +32,16 @@ export type PetRigLayer = {
   offsetY: number;
 };
 
+export type PetActionSpritesheet = {
+  format: "petdex-8x9";
+  dataUrl: string;
+  mimeType: "image/webp" | "image/png";
+  frameWidth: number;
+  frameHeight: number;
+  columns: number;
+  rows: number;
+};
+
 export type PetRigAsset = {
   id: string;
   sourceName: string;
@@ -39,6 +49,7 @@ export type PetRigAsset = {
   sourceHasTransparency: boolean;
   previewDataUrl: string;
   layers: PetRigLayer[];
+  actionSpritesheet?: PetActionSpritesheet;
   settings: PetRigSettings;
   createdAt: string;
   updatedAt: string;
@@ -62,7 +73,7 @@ export type PetPosition = {
 
 export const defaultPetProfile: PetProfile = {
   name: "Q Assistant",
-  species: "qbot-fox",
+  species: "noir-webling",
   primaryColor: "#111827",
   accentColor: "#9ca3af",
   accessory: "none",
@@ -76,8 +87,7 @@ export const defaultPetPosition: PetPosition = {
 };
 
 export const speciesOptions: Array<{ value: PetSpecies; label: string }> = [
-  { value: "qbot-fox", label: "QBot 狐猫" },
-  { value: "nori-cat", label: "糯糯猫" },
+  { value: "noir-webling", label: "Noir 小人" },
   { value: "momo-blob", label: "团子形" },
   { value: "luma-star", label: "星星形" },
 ];
@@ -89,7 +99,7 @@ export const accessoryOptions: Array<{ value: PetAccessory; label: string }> = [
 ];
 
 export const paletteOptions = [
-  { label: "QBot", primaryColor: "#8b5cf6", accentColor: "#f04fd8" },
+  { label: "Noir", primaryColor: "#111827", accentColor: "#9ca3af" },
   { label: "薄荷", primaryColor: "#f7fbf8", accentColor: "#d5ebe5" },
   { label: "天空", primaryColor: "#f8fbff", accentColor: "#cfe1ff" },
   { label: "蜜桃", primaryColor: "#fff8f4", accentColor: "#ffd4c4" },

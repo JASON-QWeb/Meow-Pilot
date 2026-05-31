@@ -1,7 +1,7 @@
 import type { CSSProperties, MouseEventHandler, PointerEventHandler } from "react";
 import type { PetEmotion } from "@pet/protocol";
 import { PetdexSprite } from "./PetdexSprite";
-import { getPetdexTemplate, type PetdexSpriteStateId } from "./petdexCatalog";
+import { getPetdexTemplate, type PetdexSpriteStateId, type PetdexTemplate } from "./petdexCatalog";
 import type { PetProfile, PetRigAsset } from "./petProfile";
 
 type PetAvatarProps = {
@@ -31,20 +31,22 @@ export function PetAvatar({
   onPointerUp,
   onPointerCancel,
 }: PetAvatarProps) {
-  const customRig = profile.appearance === "layered-image" && asset;
+  const customRig = profile.appearance === "layered-image" ? asset : null;
   const petdexTemplate = profile.appearance === "petdex-sprite" ? getPetdexTemplate(profile.petdexSlug) : null;
+  const customSpriteTemplate = customRig?.actionSpritesheet ? customPetdexTemplate(customRig, profile.accentColor) : null;
+  const spriteTemplate = petdexTemplate ?? customSpriteTemplate;
   const petdexScale = size === "stage" ? 0.82 : size === "overlay" ? 0.62 : 0.36;
 
   return (
     <button
       className={`petAvatar petAvatar-${size} species-${profile.species} emotion-${emotion} ${
-        petdexTemplate ? "avatarPetdexRig" : customRig ? "avatarLayeredRig" : "avatarProceduralRig"
+        spriteTemplate ? `avatarPetdexRig ${customSpriteTemplate ? "avatarCustomActionRig" : ""}` : customRig ? "avatarLayeredRig" : "avatarProceduralRig"
       }`}
       style={
         {
           "--pet-primary": profile.primaryColor,
           "--pet-accent": profile.accentColor,
-          "--petdex-accent": petdexTemplate?.accentColor,
+          "--petdex-accent": spriteTemplate?.accentColor,
         } as CSSProperties
       }
       type="button"
@@ -58,11 +60,17 @@ export function PetAvatar({
       onPointerCancel={onPointerCancel}
     >
       <span className="petGlow" />
-      {petdexTemplate ? (
-        <PetdexSprite template={petdexTemplate} state={petdexStateForEmotion(emotion)} scale={petdexScale} label={`${profile.name} 的 Petdex 形象`} />
+      {spriteTemplate ? (
+        <PetdexSprite
+          template={spriteTemplate}
+          state={petdexStateForEmotion(emotion)}
+          scale={petdexScale}
+          className={customSpriteTemplate ? "customActionSpriteFrame" : ""}
+          label={`${profile.name} 的 Petdex 形象`}
+        />
       ) : customRig ? (
-        <span className={`petRig motion-${asset.settings.motionStyle}`}>
-          {asset.layers.map((layer) => (
+        <span className={`petRig motion-${customRig.settings.motionStyle}`}>
+          {customRig.layers.map((layer) => (
             <span
               className={`petRigLayer layer-${layer.id}`}
               style={{ "--layer-x": `${layer.offsetX}px`, "--layer-y": `${layer.offsetY}px` } as CSSProperties}
@@ -124,6 +132,18 @@ export function PetAvatar({
       )}
     </button>
   );
+}
+
+function customPetdexTemplate(asset: PetRigAsset, accentColor: string): PetdexTemplate | null {
+  if (!asset.actionSpritesheet) return null;
+  return {
+    slug: asset.id,
+    displayName: asset.sourceName.replace(/\.[^.]+$/, "") || "自定义宠物",
+    submittedBy: "local image",
+    sprite: asset.actionSpritesheet.dataUrl,
+    sourceUrl: "local-image",
+    accentColor,
+  };
 }
 
 function petdexStateForEmotion(emotion: PetEmotion): PetdexSpriteStateId {

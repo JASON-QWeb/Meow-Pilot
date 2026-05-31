@@ -1,6 +1,5 @@
 import {
   Activity,
-  ArrowUpRight,
   Bell,
   Bot,
   CalendarDays,
@@ -10,7 +9,7 @@ import {
   MessageCircle,
   Sparkles,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ProviderSummary, RuntimeStatsPayload, TokenUsageSummary } from "@pet/protocol";
 import { PetAvatar } from "../pet/PetAvatar";
 import type { PetProfile, PetRigAsset } from "../pet/petProfile";
@@ -214,40 +213,21 @@ export function HomeDashboard({
 
             <div className="homeWeekChart">
               <div className="homeTrendPlot" aria-hidden="true">
-                <svg viewBox="0 0 700 220" preserveAspectRatio="none">
+                <svg viewBox="0 0 700 300" preserveAspectRatio="none">
                   <defs>
                     <linearGradient id="homeTrendArea" x1="0" x2="0" y1="0" y2="1">
-                      <stop offset="0%" stopColor="#d9ff4a" stopOpacity="0.34" />
-                      <stop offset="72%" stopColor="#f4b866" stopOpacity="0.12" />
-                      <stop offset="100%" stopColor="#f8f7f1" stopOpacity="0" />
-                    </linearGradient>
-                    <linearGradient id="homeTrendStroke" x1="0" x2="1" y1="0" y2="0">
-                      <stop offset="0%" stopColor="#f18b42" />
-                      <stop offset="52%" stopColor="#e6cf38" />
-                      <stop offset="100%" stopColor="#a6d927" />
+                      <stop offset="0%" stopColor="#8bd11a" stopOpacity="0.28" />
+                      <stop offset="58%" stopColor="#8bd11a" stopOpacity="0.08" />
+                      <stop offset="100%" stopColor="#8bd11a" stopOpacity="0" />
                     </linearGradient>
                   </defs>
-                  <g className="homeTrendGrid">
-                    {[48, 94, 140, 186].map((y) => (
-                      <line key={y} x1="34" x2="666" y1={y} y2={y} />
-                    ))}
-                  </g>
                   <path className="homeTrendArea" d={trendGeometry.areaPath} />
-                  <path className="homeTrendLineGlow" d={trendGeometry.linePath} />
                   <path className="homeTrendLine" d={trendGeometry.linePath} />
-                  {trendGeometry.points.map((point) => (
-                    <g className="homeTrendDot" key={`${point.x}-${point.y}`}>
-                      <circle className="homeTrendDotHalo" cx={point.x} cy={point.y} r="8.5" />
-                      <circle className="homeTrendDotCore" cx={point.x} cy={point.y} r="4.2" />
-                    </g>
-                  ))}
                 </svg>
               </div>
 
               <div className="homeDayColumns">
                 {usageTrend.map((point, index) => {
-                  const ratio = point.messages / Math.max(trendGeometry.maxValue, 1);
-                  const barHeight = `${point.messages > 0 ? Math.max(14, ratio * 88) : 5}px`;
                   const dayClassName = [
                     "homeDayColumn",
                     index === usageTrend.length - 1 ? "today" : "",
@@ -256,29 +236,15 @@ export function HomeDashboard({
                     .filter(Boolean)
                     .join(" ");
                   return (
-                    <article className={dayClassName} key={point.key}>
+                    <article aria-label={`${point.label} ${formatNumber(point.messages)} 条消息`} className={dayClassName} key={point.key}>
                       <span>{point.label}</span>
                       <strong>{formatCompactNumber(point.messages)}</strong>
-                      <div
-                        aria-label={`${point.label} ${formatNumber(point.messages)} 条消息`}
-                        className="homeDayBar"
-                        style={{ "--bar-height": barHeight } as CSSProperties}
-                      >
-                        <i />
-                      </div>
                     </article>
                   );
                 })}
               </div>
             </div>
 
-            <div className="homeTrendFooter">
-              <span>统计来自本地会话数据库；今日/昨日为实际消息数，历史分布和 token 为估算。</span>
-              <button type="button" onClick={() => onNavigate("usage")}>
-                查看用量
-                <ArrowUpRight size={15} />
-              </button>
-            </div>
           </section>
         </section>
 
@@ -375,9 +341,9 @@ function buildUsageTrend(stats: RuntimeStatsPayload, nowMs: number): UsageTrendP
 
 function buildTrendGeometry(points: UsageTrendPoint[]) {
   const width = 700;
-  const height = 220;
-  const paddingX = 34;
-  const paddingY = 24;
+  const height = 300;
+  const paddingX = 18;
+  const paddingY = 58;
   const baseY = height - paddingY;
   const maxValue = Math.max(1, ...points.map((point) => point.messages));
   const coordinates = points.map((point, index) => {

@@ -21,7 +21,7 @@ import { ChatPanel } from "./features/chat/ChatPanel";
 import { DraggablePetOverlay } from "./features/pet/DraggablePetOverlay";
 import { deletePetRigAsset, loadPetRigAsset, savePetRigAsset } from "./features/pet/petAssetStore";
 import { PetCustomizer } from "./features/pet/PetCustomizer";
-import { defaultPetPosition, defaultPetProfile, type PetPosition, type PetProfile, type PetRigAsset } from "./features/pet/petProfile";
+import { defaultPetPosition, defaultPetProfile, speciesOptions, type PetPosition, type PetProfile, type PetRigAsset } from "./features/pet/petProfile";
 import { HomeDashboard } from "./features/runtime/HomeDashboard";
 import { RuntimeSidePanel } from "./features/runtime/RuntimeSidePanel";
 import { createDefaultTasks, ScheduledTasksPanel, type ScheduledTask } from "./features/runtime/ScheduledTasksPanel";
@@ -43,6 +43,8 @@ type NavIndicator = {
 const initialAppWindow = currentAppWindow();
 document.documentElement.dataset.window = initialAppWindow;
 const defaultScheduledTasks = createDefaultTasks();
+const mockOwnerName = "JasonQ";
+const supportedPetSpecies = new Set<string>(speciesOptions.map((option) => option.value));
 
 export function App() {
   const agent = usePetAgent();
@@ -56,36 +58,9 @@ export function App() {
   const [navIndicator, setNavIndicator] = useState<NavIndicator>({ height: 48, width: 48, x: 0, y: 0, visible: false });
 
   useEffect(() => {
-    if (petProfile.name === "BabyQ") {
-      setPetProfile({ ...petProfile, name: defaultPetProfile.name });
-      return;
-    }
-    if (
-      petProfile.name === "糯糯" &&
-      petProfile.species === "nori-cat" &&
-      petProfile.primaryColor === "#f7fbf8" &&
-      petProfile.accentColor === "#d5ebe5"
-    ) {
-      setPetProfile(defaultPetProfile);
-      return;
-    }
-    if (
-      petProfile.name === "Q Assistant" &&
-      petProfile.species === "qbot-fox" &&
-      petProfile.primaryColor === "#8b5cf6" &&
-      petProfile.accentColor === "#f04fd8" &&
-      (petProfile.appearance === "classic" || !petProfile.appearance) &&
-      !petProfile.assetId
-    ) {
-      setPetProfile(defaultPetProfile);
-      return;
-    }
-    if (
-      petProfile.name === "Q Assistant" &&
-      petProfile.appearance === "petdex-sprite" &&
-      petProfile.petdexSlug === "boba" &&
-      !petProfile.assetId
-    ) {
+    const legacyProfile = petProfile as PetProfile & { species?: string };
+
+    if (!legacyProfile.assetId && (!legacyProfile.species || !supportedPetSpecies.has(legacyProfile.species))) {
       setPetProfile(defaultPetProfile);
     }
   }, [petProfile, setPetProfile]);
@@ -117,6 +92,7 @@ export function App() {
   } as CSSProperties;
   const nowLabel = new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" }).format(new Date());
   const dateLabel = new Intl.DateTimeFormat("zh-CN", { month: "short", day: "numeric", weekday: "short" }).format(new Date());
+  const headerTitle = workView === "home" ? `Welcome Back, ${mockOwnerName}` : viewTitle(workView);
 
   useLayoutEffect(() => {
     const nav = navRef.current;
@@ -194,9 +170,12 @@ export function App() {
           activity={agent.petActivity.activity}
           active={agent.petActivity.active}
           tokenUsage={agent.tokenUsage}
+          messages={agent.messages}
+          isAgentRunning={agent.isAgentRunning}
           position={petPosition}
           onPositionChange={setPetPosition}
           onOpenWork={openWorkWindow}
+          onSendPrompt={agent.sendText}
           dragWindow={isTauriApp()}
         />
       </main>
@@ -234,8 +213,7 @@ export function App() {
       <section className="workMain">
         <header className="workHeader">
           <div className="workGreeting">
-            <h1>{viewTitle(workView)}</h1>
-            <p>Q Console · 本地智能体运行台</p>
+            <h1>{headerTitle}</h1>
           </div>
           <div className="workHeaderActions" aria-label="快捷操作">
             <button className={`headerChip ${workView === "home" ? "active" : ""}`} type="button" onClick={() => changeWorkView("home")}>
@@ -289,6 +267,7 @@ export function App() {
       return (
         <RuntimeSidePanel
           view="friends"
+          petProfile={petProfile}
           memories={agent.memories}
           memoryProposal={agent.memoryProposal}
           skills={agent.skills}
@@ -333,6 +312,7 @@ export function App() {
       return (
         <RuntimeSidePanel
           view="memory"
+          petProfile={petProfile}
           memories={agent.memories}
           memoryProposal={agent.memoryProposal}
           skills={agent.skills}
@@ -357,6 +337,7 @@ export function App() {
       return (
         <RuntimeSidePanel
           view="skills"
+          petProfile={petProfile}
           memories={agent.memories}
           memoryProposal={agent.memoryProposal}
           skills={agent.skills}
@@ -381,6 +362,7 @@ export function App() {
       return (
         <RuntimeSidePanel
           view="settings"
+          petProfile={petProfile}
           memories={agent.memories}
           memoryProposal={agent.memoryProposal}
           skills={agent.skills}

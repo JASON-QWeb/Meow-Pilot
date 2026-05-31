@@ -2,6 +2,9 @@ import { Download, ImagePlus, Sparkles, X } from "lucide-react";
 import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type DragEvent } from "react";
 import { createPortal } from "react-dom";
 import { createPetRig, readPetImage, restoreRigSource, rigSettings, type PetImageSource } from "./petImagePipeline";
+import { buildPetdexPackage } from "./petPackageExport";
+import { PetdexSprite } from "./PetdexSprite";
+import type { PetdexSpriteStateId, PetdexTemplate } from "./petdexCatalog";
 import type { PetRigAsset, PetRigSettings } from "./petProfile";
 
 type PetImageStudioProps = {
@@ -14,7 +17,7 @@ export function PetImageStudio({ asset, onApply, onClose }: PetImageStudioProps)
   const [source, setSource] = useState<PetImageSource | null>(() => (asset ? restoreRigSource(asset) : null));
   const [settings, setSettings] = useState<PetRigSettings>(() => rigSettings(asset));
   const [preview, setPreview] = useState<PetRigAsset | null>(asset);
-  const [status, setStatus] = useState(asset ? "微调拆件并确认应用。" : "导入一张宠物照片或透明 PNG，先在本机生成拆件。");
+  const [status, setStatus] = useState(asset ? "微调拆件和动作图集并确认应用。" : "导入一张宠物照片或透明 PNG，先在本机生成拆件和动作图集。");
   const [processing, setProcessing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -35,12 +38,12 @@ export function PetImageStudio({ asset, onApply, onClose }: PetImageStudioProps)
     if (!source) return;
     let current = true;
     setProcessing(true);
-    setStatus("正在本机生成透明拆件预览...");
+    setStatus("正在本机生成透明拆件和 9 组动作图集...");
     void createPetRig(source, settings, asset?.id)
       .then((rig) => {
         if (!current) return;
         setPreview(asset ? { ...rig, createdAt: asset.createdAt } : rig);
-        setStatus("拆件已准备好。检查边缘和层级，确认后再应用到桌面。");
+        setStatus("动作图集已准备好。检查边缘、层级和动作预览，确认后再应用到桌面。");
       })
       .catch((error: unknown) => {
         if (!current) return;
@@ -60,7 +63,7 @@ export function PetImageStudio({ asset, onApply, onClose }: PetImageStudioProps)
     try {
       const nextSource = await readPetImage(file);
       setSource(nextSource);
-      setStatus("图片已导入，正在拆件。");
+      setStatus("图片已导入，正在生成拆件和动作图集。");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "图片导入失败。");
       setProcessing(false);
@@ -99,6 +102,25 @@ export function PetImageStudio({ asset, onApply, onClose }: PetImageStudioProps)
     });
   }
 
+  async function downloadActionPackage() {
+    if (!preview?.actionSpritesheet) return;
+    setProcessing(true);
+    try {
+      const packageBlob = await buildPetdexPackage(preview);
+      const link = document.createElement("a");
+      const url = URL.createObjectURL(packageBlob);
+      link.href = url;
+      link.download = `${safeFileName(preview.sourceName)}-petdex.zip`;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      setStatus("动作包已导出，结构与 Petdex zip 兼容。");
+    } catch {
+      setStatus("动作包导出失败，请重试。");
+    } finally {
+      setProcessing(false);
+    }
+  }
+
   return createPortal(
     <div className="petStudioBackdrop">
       <section className="petStudio" role="dialog" aria-modal="true" aria-label="从图片生成宠物形象">
@@ -130,7 +152,7 @@ export function PetImageStudio({ asset, onApply, onClose }: PetImageStudioProps)
 
           <div className="studioImageCard rigCard">
             <h3>2. 动态预览</h3>
-            {preview ? <RigPreview asset={preview} /> : <div className="emptyImage">导入图片后显示生成形象</div>}
+            {preview ? <ActionSpritePreview asset={preview} /> : <div className="emptyImage">导入图片后显示生成形象</div>}
             <span className="localBadge">仅本地处理</span>
           </div>
 
@@ -186,7 +208,7 @@ export function PetImageStudio({ asset, onApply, onClose }: PetImageStudioProps)
         <section className="layerReview" aria-label="生成图层">
           <div className="layerReviewTitle">
             <h3>拆件确认</h3>
-            <p>头部会响应思考/聆听，身体负责呼吸，脚部作为稳定落点。</p>
+            <p>会同时保留三层拆件，并生成与 Petdex 模板一致的 idle、running、waving、jumping、failed、waiting、review 动作行。</p>
           </div>
           <div className="layerTiles">
             {preview?.layers.map((layer) => (
@@ -196,6 +218,16 @@ export function PetImageStudio({ asset, onApply, onClose }: PetImageStudioProps)
               </figure>
             )) ?? <p className="emptyLayers">等待图片导入</p>}
           </div>
+          {preview?.actionSpritesheet ? (
+            <div className="actionPreviewStrip" aria-label="动作行预览">
+              {actionPreviewStates.map((state) => (
+                <figure className="actionPreviewTile" key={state.id}>
+                  <PetdexSprite template={customTemplate(preview)} state={state.id} scale={0.24} animated={false} className="customActionSpriteFrame" />
+                  <figcaption>{state.label}</figcaption>
+                </figure>
+              ))}
+            </div>
+          ) : null}
         </section>
 
         <footer className="petStudioFooter">
@@ -208,6 +240,10 @@ export function PetImageStudio({ asset, onApply, onClose }: PetImageStudioProps)
               <Download size={15} />
               下载拆件
             </button>
+            <button type="button" className="studioSecondary" disabled={!preview?.actionSpritesheet || processing} onClick={() => void downloadActionPackage()}>
+              <Download size={15} />
+              下载动作包
+            </button>
             <button type="button" className="studioPrimary" disabled={!preview || processing} onClick={() => void applyRig()}>
               <Sparkles size={15} />
               确认并应用
@@ -217,6 +253,27 @@ export function PetImageStudio({ asset, onApply, onClose }: PetImageStudioProps)
       </section>
     </div>,
     document.body,
+  );
+}
+
+const actionPreviewStates: Array<{ id: PetdexSpriteStateId; label: string }> = [
+  { id: "idle", label: "待机" },
+  { id: "running-right", label: "右跑" },
+  { id: "running-left", label: "左跑" },
+  { id: "waving", label: "挥手" },
+  { id: "jumping", label: "跳跃" },
+  { id: "failed", label: "失败" },
+  { id: "waiting", label: "等待" },
+  { id: "running", label: "奔跑" },
+  { id: "review", label: "思考" },
+];
+
+function ActionSpritePreview({ asset }: { asset: PetRigAsset }) {
+  if (!asset.actionSpritesheet) return <RigPreview asset={asset} />;
+  return (
+    <div className="studioActionSpritePreview">
+      <PetdexSprite template={customTemplate(asset)} state="idle" scale={1.08} className="customActionSpriteFrame" label="自定义动作图集预览" />
+    </div>
   );
 }
 
@@ -234,6 +291,17 @@ function RigPreview({ asset }: { asset: PetRigAsset }) {
       ))}
     </div>
   );
+}
+
+function customTemplate(asset: PetRigAsset): PetdexTemplate {
+  return {
+    slug: asset.id,
+    displayName: asset.sourceName.replace(/\.[^.]+$/, "") || "自定义宠物",
+    submittedBy: "local image",
+    sprite: asset.actionSpritesheet?.dataUrl ?? asset.previewDataUrl,
+    sourceUrl: "local-image",
+    accentColor: "#117b69",
+  };
 }
 
 function RangeControl({

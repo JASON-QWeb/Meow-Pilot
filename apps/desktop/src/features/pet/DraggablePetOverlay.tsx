@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
-import { PhysicalPosition, PhysicalSize } from "@tauri-apps/api/dpi";
+import { useEffect, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent } from "react";
+import { LogicalSize, PhysicalPosition } from "@tauri-apps/api/dpi";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { PetActivity, PetEmotion, TokenUsageSummary } from "@pet/protocol";
+import { Gauge, MessageCircle, Music, Send, Volume2, X } from "lucide-react";
+import type { ChatMessage, PetActivity, PetEmotion, TokenUsageSummary } from "@pet/protocol";
 import { PetAvatar } from "./PetAvatar";
 import type { PetPosition, PetProfile, PetRigAsset } from "./petProfile";
 
@@ -12,9 +13,12 @@ type DraggablePetOverlayProps = {
   activity: PetActivity;
   active: boolean;
   tokenUsage: TokenUsageSummary[];
+  messages: ChatMessage[];
+  isAgentRunning?: boolean;
   position: PetPosition;
   onPositionChange: (position: PetPosition) => void;
   onOpenWork: () => void;
+  onSendPrompt: (text: string) => unknown | Promise<unknown>;
   dragWindow?: boolean;
 };
 
@@ -30,6 +34,8 @@ type DragState = {
   moved: boolean;
 };
 
+type OverlayMode = "menu" | "usage" | "chat" | "music" | null;
+
 const activityCopy: Record<PetActivity, string> = {
   coding: "编码中",
   research: "查资料",
@@ -37,7 +43,7 @@ const activityCopy: Record<PetActivity, string> = {
   sleeping: "休息中",
 };
 const collapsedWindowSize = { width: 180, height: 180 };
-const expandedWindowSize = { width: 420, height: 380 };
+const expandedWindowSize = { width: 540, height: 380 };
 
 export function DraggablePetOverlay({
   profile,
@@ -46,22 +52,30 @@ export function DraggablePetOverlay({
   activity,
   active,
   tokenUsage,
+  messages,
+  isAgentRunning = false,
   position,
   onPositionChange,
   onOpenWork,
+  onSendPrompt,
   dragWindow = false,
 }: DraggablePetOverlayProps) {
   const dragRef = useRef<DragState | null>(null);
   const frameRef = useRef<number | null>(null);
   const pendingWindowPositionRef = useRef<PhysicalPosition | null>(null);
+  const musicInputRef = useRef<HTMLInputElement | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [tokenBoardOpen, setTokenBoardOpen] = useState(false);
+  const [overlayMode, setOverlayMode] = useState<OverlayMode>(null);
+  const [quickChatDraft, setQuickChatDraft] = useState("");
+  const [localTrack, setLocalTrack] = useState<{ url: string; name: string; mimeType: string } | null>(null);
+  const overlayOpen = overlayMode !== null;
   const tokenRows = buildTokenProgressRows(tokenUsage);
+  const recentMessages = messages.filter((message) => message.role !== "system").slice(-4);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      setTokenBoardOpen(false);
+      setOverlayMode(null);
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => {
@@ -76,8 +90,15 @@ export function DraggablePetOverlay({
 
   useEffect(() => {
     if (!dragWindow) return;
-    void resizePetWindow(tokenBoardOpen).catch(() => undefined);
-  }, [dragWindow, tokenBoardOpen]);
+    void resizePetWindow(overlayOpen).catch(() => undefined);
+  }, [dragWindow, overlayOpen]);
+
+  useEffect(
+    () => () => {
+      if (localTrack?.url) URL.revokeObjectURL(localTrack.url);
+    },
+    [localTrack?.url],
+  );
 
   function clamp(nextX: number, nextY: number): PetPosition {
     const width = 150;
@@ -173,12 +194,177 @@ export function DraggablePetOverlay({
   function handleContextMenu(event: ReactMouseEvent<HTMLDivElement>) {
     event.preventDefault();
     event.stopPropagation();
-    setTokenBoardOpen((current) => !current);
+    setOverlayMode((current) => (current === "menu" ? null : "menu"));
   }
 
   function stopOverlayControl(event: ReactMouseEvent<HTMLElement>) {
-    event.preventDefault();
     event.stopPropagation();
+  }
+
+  async function submitQuickChat(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const text = quickChatDraft.trim();
+    if (!text) return;
+    setQuickChatDraft("");
+    await onSendPrompt(text);
+  }
+
+  function chooseLocalTrack(file?: File) {
+    if (!file) return;
+    setLocalTrack((current) => {
+      if (current?.url) URL.revokeObjectURL(current.url);
+      return {
+        url: URL.createObjectURL(file),
+        name: file.name,
+        mimeType: file.type,
+      };
+    });
+  }
+
+  function closeOverlay(event?: ReactMouseEvent<HTMLElement>) {
+    if (event) stopOverlayControl(event);
+    setOverlayMode(null);
+  }
+
+  function renderOverlayPanel() {
+    if (overlayMode === "menu") {
+      return (
+        <aside className="petOverlayPanel petOverlayMenu" aria-label="宠物快捷菜单" onMouseDown={stopOverlayControl} onContextMenu={stopOverlayControl}>
+          <header>
+            <div>
+              <strong>快捷菜单</strong>
+              <p>选择一个小窗</p>
+            </div>
+            <button type="button" aria-label="关闭快捷菜单" onClick={closeOverlay}>
+              <X size={15} />
+            </button>
+          </header>
+          <div className="petContextActions">
+            <button type="button" onClick={() => setOverlayMode("usage")}>
+              <Gauge size={17} />
+              <span>用量</span>
+              <small>用量看板</small>
+            </button>
+            <button type="button" onClick={() => setOverlayMode("chat")}>
+              <MessageCircle size={17} />
+              <span>快速对话</span>
+              <small>小窗直接聊</small>
+            </button>
+            <button type="button" onClick={() => setOverlayMode("music")}>
+              <Music size={17} />
+              <span>听歌</span>
+              <small>选择本地歌曲</small>
+            </button>
+          </div>
+        </aside>
+      );
+    }
+
+    if (overlayMode === "usage") {
+      return (
+        <aside className="petOverlayPanel petUsageBoard" aria-label="用量看板" onMouseDown={stopOverlayControl} onContextMenu={stopOverlayControl}>
+          <header>
+            <div>
+              <strong>用量看板</strong>
+              <p>{tokenRows.length} 条额度</p>
+            </div>
+            <button type="button" aria-label="关闭用量看板" onClick={closeOverlay}>
+              <X size={15} />
+            </button>
+          </header>
+          <div className="petTokenProgressList">
+            {tokenRows.map((row) => (
+              <section className={`petTokenProgress ${row.accent}`} key={row.id}>
+                <div className="petTokenProgressLabel">
+                  <span>{row.label}</span>
+                  <strong>{row.value}</strong>
+                </div>
+                <div className="petTokenProgressTrack">
+                  <span className={row.pending ? "pending" : ""} style={row.pending ? undefined : { width: `${row.percent}%` }} />
+                </div>
+              </section>
+            ))}
+          </div>
+        </aside>
+      );
+    }
+
+    if (overlayMode === "chat") {
+      return (
+        <aside className="petOverlayPanel petQuickChat" aria-label="快速对话" onMouseDown={stopOverlayControl} onContextMenu={stopOverlayControl}>
+          <header>
+            <div>
+              <strong>快速对话</strong>
+              <p>{isAgentRunning ? "正在回复" : "当前会话"}</p>
+            </div>
+            <button type="button" aria-label="关闭快速对话" onClick={closeOverlay}>
+              <X size={15} />
+            </button>
+          </header>
+          <div className="petQuickChatMessages">
+            {recentMessages.map((message, index) => (
+              <article className={message.role === "user" ? "user" : "assistant"} key={message.id ?? `${message.role}-${index}`}>
+                <span>{message.role === "user" ? "你" : profile.name}</span>
+                <p>{message.content}</p>
+              </article>
+            ))}
+            {!recentMessages.length ? <p className="petOverlayEmpty">直接输入一句话开始。</p> : null}
+          </div>
+          <form className="petQuickChatForm" onSubmit={(event) => void submitQuickChat(event)}>
+            <input value={quickChatDraft} onChange={(event) => setQuickChatDraft(event.currentTarget.value)} placeholder="输入消息" />
+            <button type="submit" aria-label="发送快速对话" disabled={!quickChatDraft.trim()}>
+              <Send size={15} />
+            </button>
+          </form>
+        </aside>
+      );
+    }
+
+    if (overlayMode === "music") {
+      return (
+        <aside className="petOverlayPanel petMusicPanel" aria-label="音乐播放器" onMouseDown={stopOverlayControl} onContextMenu={stopOverlayControl}>
+          <header>
+            <div>
+              <strong>音乐播放器</strong>
+              <p>{localTrack ? localTrack.name : "选择本地歌曲"}</p>
+            </div>
+            <button type="button" aria-label="关闭音乐播放器" onClick={closeOverlay}>
+              <X size={15} />
+            </button>
+          </header>
+          {localTrack ? (
+            <div className="petMusicPlayer">
+              <Music size={24} />
+              <audio controls src={localTrack.url}>
+                {localTrack.mimeType ? <source src={localTrack.url} type={localTrack.mimeType} /> : null}
+              </audio>
+            </div>
+          ) : (
+            <button className="petMusicPicker" type="button" onClick={() => musicInputRef.current?.click()}>
+              <Volume2 size={18} />
+              选择歌曲播放
+            </button>
+          )}
+          {localTrack ? (
+            <button className="petMusicReplace" type="button" onClick={() => musicInputRef.current?.click()}>
+              换一首
+            </button>
+          ) : null}
+          <input
+            className="visuallyHidden"
+            ref={musicInputRef}
+            type="file"
+            accept="audio/*"
+            onChange={(event) => {
+              chooseLocalTrack(event.currentTarget.files?.[0]);
+              event.currentTarget.value = "";
+            }}
+          />
+        </aside>
+      );
+    }
+
+    return null;
   }
 
   function scheduleWindowMove(x: number, y: number) {
@@ -198,19 +384,27 @@ export function DraggablePetOverlay({
   async function resizePetWindow(expanded: boolean) {
     const nextSize = expanded ? expandedWindowSize : collapsedWindowSize;
     const currentWindow = getCurrentWindow();
-    const [position, size] = await Promise.all([currentWindow.outerPosition(), currentWindow.outerSize()]);
+    const [position, size, scaleFactor] = await Promise.all([
+      currentWindow.outerPosition(),
+      currentWindow.outerSize(),
+      currentWindow.scaleFactor(),
+    ]);
+    const currentLogicalWidth = size.width / scaleFactor;
+    const currentLogicalHeight = size.height / scaleFactor;
 
-    if (size.width === nextSize.width && size.height === nextSize.height) return;
+    if (Math.abs(currentLogicalWidth - nextSize.width) < 1 && Math.abs(currentLogicalHeight - nextSize.height) < 1) return;
 
-    const nextX = position.x - Math.round((nextSize.width - size.width) / 2);
-    const nextY = position.y - Math.round((nextSize.height - size.height) / 2);
-    await currentWindow.setSize(new PhysicalSize(nextSize.width, nextSize.height));
+    const nextX = position.x - Math.round(((nextSize.width - currentLogicalWidth) * scaleFactor) / 2);
+    const nextY = position.y - Math.round(((nextSize.height - currentLogicalHeight) * scaleFactor) / 2);
+    await currentWindow.setResizable(true).catch(() => undefined);
+    await currentWindow.setSize(new LogicalSize(nextSize.width, nextSize.height));
     await currentWindow.setPosition(new PhysicalPosition(nextX, nextY));
+    await currentWindow.setResizable(false).catch(() => undefined);
   }
 
   return (
     <div
-      className={`petOnlyLayer activity-${activity} ${active ? "active" : "resting"} ${dragging ? "dragging" : ""} ${tokenBoardOpen ? "tokenBoardOpen" : ""}`}
+      className={`petOnlyLayer activity-${activity} ${active ? "active" : "resting"} ${dragging ? "dragging" : ""} ${overlayOpen ? "overlayOpen" : ""} mode-${overlayMode ?? "idle"}`}
       style={dragWindow ? undefined : { transform: `translate3d(${position.x}px, ${position.y}px, 0)` }}
       onMouseDown={handleMouseDown}
       onContextMenu={handleContextMenu}
@@ -223,39 +417,7 @@ export function DraggablePetOverlay({
         draggable
         onDoubleClick={handleDoubleClick}
       />
-      {tokenBoardOpen ? (
-        <aside className="petTokenBoard" aria-label="Token 进度条" onMouseDown={stopOverlayControl} onClick={(event) => event.stopPropagation()}>
-          <header>
-            <div>
-              <strong>Token 进度</strong>
-              <p>{tokenRows.length} 条额度</p>
-            </div>
-            <button
-              type="button"
-              aria-label="关闭 Token 进度"
-              onClick={(event) => {
-                stopOverlayControl(event);
-                setTokenBoardOpen(false);
-              }}
-            >
-              ×
-            </button>
-          </header>
-          <div className="petTokenProgressList">
-            {tokenRows.map((row) => (
-              <section className={`petTokenProgress ${row.accent}`} key={row.id}>
-                <div className="petTokenProgressLabel">
-                  <span>{row.label}</span>
-                  <strong>{row.value}</strong>
-                </div>
-                <div className="petTokenProgressTrack">
-                  <span className={row.pending ? "pending" : ""} style={row.pending ? undefined : { width: `${row.percent}%` }} />
-                </div>
-              </section>
-            ))}
-          </div>
-        </aside>
-      ) : null}
+      {renderOverlayPanel()}
       <span className="visuallyHidden">{activityCopy[activity]}</span>
     </div>
   );

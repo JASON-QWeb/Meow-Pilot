@@ -219,76 +219,235 @@ html[data-window="pet"] .appShell {
     0 8px 0 rgba(21, 33, 31, 0.08);
 }
 
-.petTokenBoard {
-  position: absolute;
-  z-index: 20;
-  pointer-events: auto;
-  user-select: none;
-  left: 14px;
-  right: 14px;
-  bottom: 14px;
+.petOnlyLayer.overlayOpen {
+  grid-template-columns: 156px 300px;
+  gap: 16px;
+  align-items: center;
+  justify-items: center;
+  justify-content: center;
+  padding: 16px;
+  animation: none;
+}
+
+.petOnlyLayer.overlayOpen .petAvatar {
+  justify-self: center;
+}
+
+.petOverlayPanel {
+  position: relative;
   display: grid;
-  max-height: calc(100% - 28px);
-  gap: 10px;
+  width: 100%;
+  max-width: 300px;
+  max-height: calc(100% - 10px);
+  gap: 12px;
   overflow: auto;
   border: 1px solid rgba(8, 9, 10, 0.1);
-  border-radius: 20px;
+  border-radius: 18px;
   padding: 12px;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 16px 36px rgba(8, 9, 10, 0.18);
-  backdrop-filter: blur(14px);
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 18px 38px rgba(8, 9, 10, 0.18);
+  backdrop-filter: blur(16px);
+  pointer-events: auto;
+  user-select: text;
 }
 
-.petTokenBoard::after {
+.petOverlayPanel::before {
   position: absolute;
-  right: 42px;
-  bottom: -7px;
-  width: 14px;
-  height: 14px;
-  border-right: 1px solid rgba(8, 9, 10, 0.1);
+  left: -7px;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border-left: 1px solid rgba(8, 9, 10, 0.1);
   border-bottom: 1px solid rgba(8, 9, 10, 0.1);
-  background: rgba(255, 255, 255, 0.94);
+  background: rgba(255, 255, 255, 0.95);
   content: "";
-  transform: rotate(45deg);
+  transform: translateY(-50%) rotate(45deg);
 }
 
-.petTokenBoard header {
+.petOverlayPanel header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 24px;
+  grid-template-columns: minmax(0, 1fr) 28px;
   align-items: center;
   gap: 10px;
 }
 
-.petTokenBoard strong {
+.petOverlayPanel header strong {
   display: block;
+  overflow: hidden;
   color: #111;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 950;
   line-height: 1.1;
-}
-
-.petTokenBoard p {
-  margin: 2px 0 0;
-  overflow: hidden;
-  color: #5d6159;
-  font-size: 11px;
-  font-weight: 800;
-  line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.petTokenBoard header button {
+.petOverlayPanel header p {
+  margin: 3px 0 0;
+  overflow: hidden;
+  color: #6a7068;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.petOverlayPanel header button {
   display: grid;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   place-items: center;
-  border-radius: 999px;
-  background: #f1f3ee;
+  border-radius: 9px;
+  background: #f0f1ec;
   color: #111;
-  font-size: 14px;
+}
+
+.petContextActions {
+  display: grid;
+  gap: 8px;
+}
+
+.petContextActions button {
+  display: grid;
+  min-height: 48px;
+  grid-template-columns: 28px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: 9px;
+  border: 1px solid rgba(8, 9, 10, 0.08);
+  border-radius: 14px;
+  padding: 8px 10px;
+  background: #f8f8f4;
+  color: #111;
+  text-align: left;
+}
+
+.petContextActions button:hover {
+  border-color: rgba(8, 9, 10, 0.16);
+  background: #fff;
+}
+
+.petContextActions svg {
+  grid-row: 1 / span 2;
+  color: #267167;
+}
+
+.petContextActions span {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 950;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.petContextActions small {
+  overflow: hidden;
+  color: #6b7269;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.petQuickChatMessages {
+  display: grid;
+  max-height: 150px;
+  gap: 7px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.petQuickChatMessages article {
+  display: grid;
+  gap: 3px;
+  border-radius: 12px;
+  padding: 8px;
+  background: #f5f6f1;
+}
+
+.petQuickChatMessages article.user {
+  background: #eafdc7;
+}
+
+.petQuickChatMessages span {
+  color: #677067;
+  font-size: 10px;
   font-weight: 900;
-  line-height: 1;
+}
+
+.petQuickChatMessages p,
+.petOverlayEmpty {
+  margin: 0;
+  color: #17211f;
+  font-size: 12px;
+  font-weight: 760;
+  line-height: 1.35;
+}
+
+.petQuickChatForm {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  gap: 8px;
+}
+
+.petQuickChatForm input {
+  min-width: 0;
+  height: 34px;
+  border: 1px solid rgba(8, 9, 10, 0.1);
+  border-radius: 11px;
+  padding: 0 10px;
+  background: #fff;
+  color: #111;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.petQuickChatForm button,
+.petMusicPicker,
+.petMusicReplace {
+  display: inline-grid;
+  min-height: 34px;
+  place-items: center;
+  border-radius: 11px;
+  background: #111;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.petQuickChatForm button:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
+.petMusicPicker {
+  grid-auto-flow: column;
+  justify-content: center;
+  gap: 8px;
+  min-height: 74px;
+  background: #eafdc7;
+  color: #111;
+}
+
+.petMusicPlayer {
+  display: grid;
+  gap: 10px;
+  border-radius: 14px;
+  padding: 12px;
+  background: #f5f6f1;
+  color: #267167;
+}
+
+.petMusicPlayer audio {
+  width: 100%;
+}
+
+.petMusicReplace {
+  justify-self: start;
+  padding: 0 12px;
 }
 
 .petTokenProgressList {
@@ -1664,7 +1823,8 @@ h1 {
 
 .studioImageCard > img,
 .emptyImage,
-.studioRigPreview {
+.studioRigPreview,
+.studioActionSpritePreview {
   width: 100%;
   aspect-ratio: 1;
   border-radius: 8px;
@@ -1724,6 +1884,17 @@ h1 {
   overflow: hidden;
 }
 
+.studioActionSpritePreview {
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.studioActionSpritePreview .petdexSpriteFrame {
+  filter: drop-shadow(0 18px 9px rgba(8, 9, 10, 0.16));
+}
+
 .studioRigLayer {
   position: absolute;
   inset: 0;
@@ -1749,6 +1920,35 @@ h1 {
 .studioRigPreview.motion-calm .layer-body,
 .studioRigPreview.motion-calm .layer-head {
   animation: rig-float 4.5s ease-in-out infinite;
+}
+
+.actionPreviewStrip {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.actionPreviewTile {
+  display: grid;
+  min-width: 0;
+  min-height: 76px;
+  place-items: center;
+  gap: 5px;
+  border: 1px solid rgba(21, 33, 31, 0.1);
+  border-radius: 8px;
+  padding: 7px 4px;
+  background: #f7faf7;
+}
+
+.actionPreviewTile figcaption {
+  width: 100%;
+  overflow: hidden;
+  color: #44534f;
+  font-size: 10px;
+  font-weight: 850;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .localBadge {
@@ -4277,7 +4477,7 @@ html:not([data-window="pet"]) body {
 }
 
 .skillCard.violet::after {
-  background: linear-gradient(135deg, #8b5cf6, #d946ef);
+  background: linear-gradient(135deg, #64748b, #111827);
 }
 
 .skillCard.emerald::after {
@@ -4573,7 +4773,7 @@ html:not([data-window="pet"]) body {
   --pet-depth: rgba(54, 35, 84, 0.22);
   --pet-core-gradient: radial-gradient(circle at 35% 24%, rgba(255, 255, 255, 0.74), transparent 24%),
     linear-gradient(150deg, rgba(255, 255, 255, 0.24), transparent 38%),
-    linear-gradient(155deg, var(--pet-primary, #8b5cf6) 0%, var(--pet-accent, #f04fd8) 96%);
+    linear-gradient(155deg, var(--pet-primary, #111827) 0%, var(--pet-accent, #9ca3af) 96%);
   contain: paint;
   perspective: 620px;
   transform-style: preserve-3d;
@@ -4716,7 +4916,7 @@ html:not([data-window="pet"]) body {
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.34);
   border-radius: 34% 68% 32% 68%;
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.36), var(--pet-primary, #8b5cf6) 54%, var(--pet-accent, #f04fd8));
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.36), var(--pet-primary, #111827) 54%, var(--pet-accent, #9ca3af));
   box-shadow: inset -6px -8px 10px rgba(31, 22, 48, 0.18);
   transform-origin: 50% 96%;
 }
@@ -4750,7 +4950,7 @@ html:not([data-window="pet"]) body {
   border-radius: 64% 36% 54% 46%;
   background:
     radial-gradient(circle at 18% 24%, var(--pet-soft-cream) 0 20%, transparent 21%),
-    linear-gradient(145deg, var(--pet-accent, #f04fd8), var(--pet-primary, #8b5cf6));
+    linear-gradient(145deg, var(--pet-accent, #9ca3af), var(--pet-primary, #111827));
   box-shadow:
     inset 8px 9px 10px rgba(255, 255, 255, 0.18),
     inset -9px -10px 14px rgba(31, 22, 48, 0.22),
@@ -4774,7 +4974,7 @@ html:not([data-window="pet"]) body {
 .petModelArm,
 .petModelLeg {
   position: absolute;
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.24), var(--pet-primary, #8b5cf6) 54%, var(--pet-accent, #f04fd8));
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.24), var(--pet-primary, #111827) 54%, var(--pet-accent, #9ca3af));
   box-shadow:
     inset 6px 7px 9px rgba(255, 255, 255, 0.2),
     inset -7px -9px 10px rgba(31, 22, 48, 0.2),
@@ -5040,25 +5240,6 @@ html:not([data-window="pet"]) body {
   top: 36%;
   width: 6%;
   animation-delay: 180ms;
-}
-
-.species-nori-cat .petModelEar {
-  top: -14%;
-  height: 40%;
-  border-radius: 18% 78% 26% 74%;
-}
-
-.species-nori-cat .petModelTail {
-  left: 5%;
-  bottom: 27%;
-  width: 24%;
-  height: 52%;
-  border-radius: 999px;
-  transform: rotate(-22deg) translateZ(2px);
-}
-
-.species-nori-cat .petModelTail span {
-  display: none;
 }
 
 .species-momo-blob .petModelEar,
@@ -7231,7 +7412,6 @@ html:not([data-window="pet"]) body {
 
 .homeQuickActions button,
 .homeUsageHeader button,
-.homeTrendFooter button,
 .homeShortcutList button,
 .taskAddButton,
 .friendActions button,
@@ -7442,17 +7622,14 @@ html:not([data-window="pet"]) body {
 
 .homeTrendCard {
   display: grid;
-  min-height: 430px;
-  gap: 18px;
+  min-height: 520px;
+  gap: 30px;
   border-radius: 34px;
-  padding: 24px 26px 20px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.98)),
-    repeating-linear-gradient(90deg, rgba(8, 9, 10, 0.035) 0 1px, transparent 1px 96px);
+  padding: 36px 38px 30px;
+  background: #fff;
 }
 
-.homeTrendHeader,
-.homeTrendFooter {
+.homeTrendHeader {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -7464,10 +7641,10 @@ html:not([data-window="pet"]) body {
 }
 
 .homeTrendHeader h2 {
-  color: #050505;
-  font-size: clamp(22px, 3vw, 34px);
+  color: #111827;
+  font-size: clamp(32px, 5vw, 52px);
   font-weight: 950;
-  line-height: 1;
+  line-height: 0.98;
 }
 
 .homeTrendSummary {
@@ -7479,48 +7656,39 @@ html:not([data-window="pet"]) body {
 
 .homeTrendSummary span {
   display: inline-flex;
-  min-height: 38px;
+  min-height: 54px;
   align-items: center;
-  gap: 6px;
-  border: 1px solid rgba(8, 9, 10, 0.08);
+  gap: 8px;
+  border: 1px solid rgba(17, 24, 39, 0.08);
   border-radius: 999px;
-  padding: 0 11px;
-  background: #fff;
-  color: #676b62;
-  font-size: 12px;
+  padding: 0 20px;
+  background: #fafafa;
+  color: #6b7280;
+  font-size: 17px;
   font-weight: 850;
 }
 
 .homeTrendSummary strong {
-  color: #050505;
-  font-size: 17px;
+  color: #111827;
+  font-size: 24px;
   font-weight: 950;
 }
 
 .homeWeekChart {
   display: grid;
-  gap: 16px;
+  gap: 6px;
   min-height: 0;
 }
 
 .homeTrendPlot {
   position: relative;
-  overflow: hidden;
+  overflow: visible;
   width: 100%;
-  height: 188px;
-  border: 1px solid rgba(8, 9, 10, 0.06);
-  border-radius: 26px;
-  background:
-    linear-gradient(180deg, rgba(248, 247, 241, 0.82), rgba(255, 255, 255, 0.96)),
-    repeating-linear-gradient(90deg, rgba(8, 9, 10, 0.035) 0 1px, transparent 1px 96px);
+  height: 300px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   pointer-events: none;
-}
-
-.homeTrendPlot::before {
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(ellipse at 76% 14%, rgba(217, 255, 74, 0.24), transparent 42%);
-  content: "";
 }
 
 .homeTrendPlot svg {
@@ -7530,71 +7698,40 @@ html:not([data-window="pet"]) body {
   height: 100%;
 }
 
-.homeTrendGrid line {
-  stroke: rgba(8, 9, 10, 0.1);
-  stroke-dasharray: 7 12;
-  stroke-linecap: round;
-  stroke-width: 1;
-}
-
 .homeTrendArea {
   fill: url(#homeTrendArea);
 }
 
-.homeTrendLineGlow,
 .homeTrendLine {
   fill: none;
   stroke-linecap: round;
   stroke-linejoin: round;
-}
-
-.homeTrendLineGlow {
-  opacity: 0.3;
-  stroke: #f18b42;
-  stroke-width: 11;
-}
-
-.homeTrendLine {
-  filter: drop-shadow(0 8px 10px rgba(182, 166, 47, 0.18));
-  stroke: url(#homeTrendStroke);
-  stroke-width: 4.8;
-}
-
-.homeTrendDotHalo {
-  fill: rgba(255, 255, 255, 0.86);
-  stroke: rgba(8, 9, 10, 0.08);
-  stroke-width: 1;
-}
-
-.homeTrendDotCore {
-  fill: #050505;
-  stroke: #d9ff4a;
-  stroke-width: 2.6;
+  stroke: #72c414;
+  stroke-width: 4.5;
 }
 
 .homeDayColumns {
   display: grid;
-  min-height: 154px;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  align-items: end;
-  gap: 8px;
-  padding: 0 8px 2px;
+  align-items: start;
+  gap: 18px;
+  padding: 0 14px;
 }
 
 .homeDayColumn {
+  position: relative;
   display: grid;
   min-width: 0;
-  grid-template-rows: 24px 36px 94px;
-  align-items: end;
+  align-items: start;
   justify-items: center;
-  gap: 7px;
+  gap: 18px;
 }
 
 .homeDayColumn > span {
   overflow: hidden;
   max-width: 100%;
-  color: #8a8d84;
-  font-size: 13px;
+  color: #9ca3af;
+  font-size: 22px;
   font-weight: 900;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -7602,66 +7739,38 @@ html:not([data-window="pet"]) body {
 
 .homeDayColumn strong {
   display: grid;
-  min-width: 46px;
-  height: 38px;
+  min-width: 64px;
+  height: 44px;
   place-items: center;
-  border-radius: 15px;
-  background: #050505;
-  color: #fff;
-  font-size: 17px;
+  border: 1px solid rgba(17, 24, 39, 0.06);
+  border-radius: 999px;
+  background: #fafafa;
+  color: #9ca3af;
+  font-size: 21px;
   font-weight: 950;
   font-variant-numeric: tabular-nums;
 }
 
 .homeDayColumn.today strong {
-  border: 2px solid #050505;
-  background: #d9ff4a;
-  color: #050505;
+  border: 3px solid #111827;
+  background: #d9ff9a;
+  color: #111827;
+  box-shadow: 0 1px 0 rgba(17, 24, 39, 0.12);
 }
 
 .homeDayColumn.zero strong {
-  border: 1px solid rgba(8, 9, 10, 0.08);
-  background: #f1f0ec;
-  color: #777b72;
+  border-color: rgba(17, 24, 39, 0.05);
+  background: #fafafa;
+  color: #9ca3af;
 }
 
-.homeDayBar {
-  display: flex;
-  min-height: 94px;
-  width: 100%;
-  align-items: flex-end;
-  justify-content: center;
-}
-
-.homeDayBar i {
-  display: block;
-  width: min(46px, 5vw);
-  min-width: 28px;
-  height: var(--bar-height, 6px);
-  border: 1px solid rgba(8, 9, 10, 0.72);
-  border-radius: 999px 999px 12px 12px;
-  background: linear-gradient(180deg, #d9ff4a 0%, #f2d35e 100%);
-}
-
-.homeDayColumn.zero .homeDayBar i {
-  border-color: rgba(8, 9, 10, 0.16);
-  background: #ebe9e2;
-}
-
-.homeTrendFooter {
-  border-top: 1px solid rgba(8, 9, 10, 0.08);
-  padding-top: 14px;
-}
-
-.homeTrendFooter span {
-  color: #6d716a;
-  font-size: 12px;
-  font-weight: 780;
-  line-height: 1.5;
-}
-
-.homeTrendFooter button {
-  flex: 0 0 auto;
+.homeDayColumn.today::after {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-top: -4px;
+  background: #111827;
+  content: "";
 }
 
 .homeSideRail section,
@@ -8355,8 +8464,7 @@ html:not([data-window="pet"]) body {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .homeTrendHeader,
-  .homeTrendFooter {
+  .homeTrendHeader {
     align-items: flex-start;
     flex-direction: column;
   }
@@ -8366,8 +8474,13 @@ html:not([data-window="pet"]) body {
     padding-bottom: 4px;
   }
 
+  .homeTrendCard {
+    padding: 26px 22px 24px;
+  }
+
   .homeTrendPlot {
-    width: 608px;
+    width: 640px;
+    height: 260px;
   }
 
   .homeDayColumns {
@@ -9010,6 +9123,541 @@ html:not([data-window="pet"]) body {
   color: #fff;
 }
 
+.friendCard.exchange-open {
+  border-color: rgba(5, 5, 5, 0.18);
+  box-shadow:
+    inset 0 0 0 2px rgba(217, 255, 74, 0.58),
+    0 18px 36px rgba(8, 9, 10, 0.1);
+  transform: translateY(-2px);
+}
+
+.friendCard.exchange-open .friendActions button {
+  background: #d9ff4a;
+  color: #050505;
+  box-shadow: 0 12px 22px rgba(135, 171, 24, 0.16);
+}
+
+.skillExchangeDock {
+  position: relative;
+  display: grid;
+  gap: 18px;
+  overflow: hidden;
+  border: 1px solid rgba(5, 5, 5, 0.1);
+  border-radius: 26px;
+  padding: 18px;
+  background:
+    radial-gradient(circle at 9% 5%, rgba(217, 255, 74, 0.42), transparent 30%),
+    radial-gradient(circle at 92% 18%, rgba(255, 216, 196, 0.62), transparent 28%),
+    linear-gradient(90deg, rgba(5, 5, 5, 0.045) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(5, 5, 5, 0.038) 1px, transparent 1px),
+    #fffdf8;
+  background-size: auto, auto, 34px 34px, 34px 34px, auto;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 20px 42px rgba(8, 9, 10, 0.08);
+}
+
+.skillExchangeDock::after {
+  position: absolute;
+  right: -72px;
+  bottom: -96px;
+  width: 230px;
+  height: 230px;
+  border: 2px solid rgba(5, 5, 5, 0.08);
+  border-radius: 42px;
+  content: "";
+  transform: rotate(16deg);
+}
+
+.skillExchangeDock > * {
+  position: relative;
+  z-index: 1;
+}
+
+.exchangeDockHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.exchangePeer {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+}
+
+.exchangePeerAvatar {
+  display: grid;
+  width: 92px;
+  height: 86px;
+  place-items: center;
+  overflow: visible;
+  border: 2px solid #050505;
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: 7px 7px 0 #d9ff4a;
+}
+
+.exchangePeerAvatar .petdexSpriteFrame {
+  filter: drop-shadow(0 8px 4px rgba(8, 9, 10, 0.14));
+}
+
+.exchangePeer h3 {
+  margin: 3px 0 0;
+  color: var(--clean-ink);
+  font-size: clamp(20px, 2vw, 28px);
+  font-weight: 950;
+  line-height: 1.05;
+  text-wrap: balance;
+}
+
+.exchangePeer span,
+.exchangeDockMeta > span {
+  display: inline-flex;
+  margin-top: 7px;
+  color: #555a52;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.exchangeDockMeta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 9px;
+}
+
+.exchangeDockMeta > span,
+.exchangeCloseButton {
+  min-height: 38px;
+  align-items: center;
+  border: 1px solid rgba(5, 5, 5, 0.08);
+  border-radius: 13px;
+  padding: 0 12px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.exchangeCloseButton {
+  display: inline-flex;
+  gap: 6px;
+  color: #33362f;
+  font-size: 12px;
+  font-weight: 900;
+  transition:
+    transform 160ms ease,
+    background 160ms ease;
+}
+
+.exchangeCloseButton:hover {
+  background: #fff;
+  transform: translateY(-1px);
+}
+
+.exchangeSkillShelf {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.exchangeSkillCard {
+  position: relative;
+  display: grid;
+  min-height: 196px;
+  align-content: start;
+  gap: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(5, 5, 5, 0.1);
+  border-radius: 20px;
+  padding: 15px;
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--clean-ink);
+  text-align: left;
+  box-shadow: 0 12px 26px rgba(8, 9, 10, 0.06);
+  transition:
+    transform 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    background 180ms ease;
+}
+
+.exchangeSkillCard::before {
+  display: none;
+}
+
+.exchangeSkillCard:not(.installed):hover {
+  border-color: rgba(5, 5, 5, 0.22);
+  background: #fff;
+  box-shadow: 0 18px 34px rgba(8, 9, 10, 0.1);
+  transform: translateY(-2px);
+}
+
+.exchangeSkillCard:not(.installed):active {
+  transform: translateY(0) scale(0.99);
+}
+
+.exchangeSkillCard.installed {
+  cursor: default;
+  opacity: 1;
+  background: rgba(244, 246, 239, 0.9);
+}
+
+.exchangeSkillCategory {
+  justify-self: start;
+  border-radius: 999px;
+  padding: 5px 8px;
+  background: #f1f0ea;
+  color: #555a52;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.exchangeSkillCard strong {
+  max-width: calc(100% - 44px);
+  color: #050505;
+  font-size: 18px;
+  font-weight: 950;
+  line-height: 1.08;
+}
+
+.exchangeSkillCard p,
+.exchangeSkillCard small {
+  margin: 0;
+  color: #555a52;
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.exchangeSkillCard small {
+  color: #242820;
+  font-size: 12px;
+}
+
+.exchangeInstallBadge {
+  align-self: end;
+  display: inline-flex;
+  width: fit-content;
+  min-height: 34px;
+  align-items: center;
+  gap: 6px;
+  border-radius: 12px;
+  padding: 0 10px;
+  background: #050505;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.exchangeSkillCard.installed .exchangeInstallBadge {
+  background: #d9ff4a;
+  color: #050505;
+}
+
+.skillExchangeBackdrop {
+  position: fixed;
+  z-index: 30;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(18px) saturate(0.92);
+}
+
+.skillExchangeModal {
+  position: relative;
+  display: grid;
+  width: min(980px, 100%);
+  max-height: min(820px, calc(100dvh - 56px));
+  gap: 18px;
+  overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  border-radius: 30px;
+  padding: 22px;
+  background:
+    radial-gradient(circle at 12% 8%, rgba(217, 255, 74, 0.42), transparent 28%),
+    radial-gradient(circle at 86% 20%, rgba(255, 216, 196, 0.68), transparent 28%),
+    linear-gradient(90deg, rgba(5, 5, 5, 0.045) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(5, 5, 5, 0.038) 1px, transparent 1px),
+    #fffdf8;
+  background-size: auto, auto, 36px 36px, 36px 36px, auto;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 30px 76px rgba(8, 9, 10, 0.24);
+}
+
+.skillExchangeModal::after {
+  position: absolute;
+  right: -72px;
+  bottom: -88px;
+  width: 220px;
+  height: 220px;
+  border: 2px solid rgba(5, 5, 5, 0.08);
+  border-radius: 40px;
+  content: "";
+  transform: rotate(16deg);
+}
+
+.skillExchangeModal > * {
+  position: relative;
+  z-index: 1;
+}
+
+.exchangeModalHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.exchangeModalHeader h3 {
+  margin: 2px 0 0;
+  color: #050505;
+  font-size: clamp(24px, 3vw, 38px);
+  font-weight: 950;
+  line-height: 0.98;
+  text-wrap: balance;
+}
+
+.exchangeModalHeader span {
+  display: inline-flex;
+  margin-top: 8px;
+  color: #555a52;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.skillExchangeModal .exchangeCloseButton {
+  display: grid;
+  flex: 0 0 auto;
+  width: 40px;
+  min-height: 40px;
+  place-items: center;
+  border: 1px solid rgba(5, 5, 5, 0.08);
+  border-radius: 14px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.82);
+  color: #111;
+}
+
+.exchangePetStage {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.9fr) minmax(240px, 1.2fr) minmax(180px, 0.9fr);
+  align-items: stretch;
+  gap: 14px;
+}
+
+.exchangePetNode,
+.exchangeTransferRail {
+  min-width: 0;
+  border: 1px solid rgba(5, 5, 5, 0.08);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 14px 32px rgba(8, 9, 10, 0.06);
+}
+
+.exchangePetNode {
+  display: grid;
+  align-content: start;
+  justify-items: center;
+  gap: 8px;
+  padding: 18px 14px 18px;
+  text-align: center;
+}
+
+.exchangePetNode.peer {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.78), rgba(223, 244, 255, 0.7));
+}
+
+.exchangePetNode.local {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.78), rgba(217, 255, 74, 0.28));
+}
+
+.exchangePetSprite {
+  margin-bottom: 4px;
+  filter: drop-shadow(0 14px 7px rgba(8, 9, 10, 0.16));
+}
+
+.exchangePetNode span {
+  border-radius: 999px;
+  padding: 5px 8px;
+  background: #f1f0ea;
+  color: #555a52;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.exchangePetNode strong {
+  color: #050505;
+  font-size: 20px;
+  font-weight: 950;
+  line-height: 1.1;
+}
+
+.exchangeTransferRail {
+  position: relative;
+  display: grid;
+  min-height: 190px;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  overflow: hidden;
+  padding: 20px;
+  text-align: center;
+}
+
+.exchangeTransferRail::before,
+.exchangeTransferRail::after {
+  position: absolute;
+  left: 10%;
+  right: 10%;
+  top: 50%;
+  height: 2px;
+  border-radius: 999px;
+  background: rgba(5, 5, 5, 0.12);
+  content: "";
+}
+
+.exchangeTransferRail::after {
+  height: 8px;
+  background: linear-gradient(90deg, transparent, rgba(217, 255, 74, 0.88), transparent);
+  filter: blur(3px);
+  opacity: 0;
+  transform: translateY(-3px);
+}
+
+.exchangePacket {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  width: 54px;
+  height: 54px;
+  place-items: center;
+  border: 2px solid #050505;
+  border-radius: 18px;
+  background: #d9ff4a;
+  color: #050505;
+  box-shadow: 0 16px 26px rgba(135, 171, 24, 0.18);
+}
+
+.exchangeTransferRail strong {
+  position: relative;
+  z-index: 2;
+  color: #050505;
+  font-size: 16px;
+  font-weight: 950;
+  line-height: 1.2;
+}
+
+.skillExchangeModal.is-transferring .exchangeTransferRail::after {
+  opacity: 1;
+  animation: exchange-beam 900ms ease;
+}
+
+.skillExchangeModal.is-transferring .exchangePacket {
+  animation: exchange-packet 900ms cubic-bezier(0.2, 0.72, 0.22, 1);
+}
+
+.exchangeSkillShelf.modalShelf {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 0;
+}
+
+.exchangeSkillCard.transferring {
+  border-color: rgba(5, 5, 5, 0.28);
+  background: #fff;
+  box-shadow:
+    inset 0 0 0 2px rgba(217, 255, 74, 0.7),
+    0 18px 34px rgba(8, 9, 10, 0.1);
+}
+
+.exchangeSkillCard.transferring .exchangeInstallBadge {
+  background: #d9ff4a;
+  color: #050505;
+}
+
+@media (max-width: 760px) {
+  .exchangeDockHeader {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .exchangeDockMeta {
+    justify-content: flex-start;
+  }
+
+  .exchangeSkillShelf {
+    grid-template-columns: 1fr;
+  }
+
+  .exchangePeerAvatar {
+    width: 76px;
+    height: 76px;
+  }
+
+  .exchangePeer h3 {
+    font-size: 20px;
+  }
+
+  .skillExchangeBackdrop {
+    align-items: start;
+    padding: 14px;
+  }
+
+  .skillExchangeModal {
+    max-height: calc(100dvh - 28px);
+    border-radius: 22px;
+    padding: 16px;
+  }
+
+  .exchangeModalHeader {
+    gap: 12px;
+  }
+
+  .exchangePetStage,
+  .exchangeSkillShelf.modalShelf {
+    grid-template-columns: 1fr;
+  }
+
+  .exchangeTransferRail {
+    min-height: 170px;
+  }
+
+  .exchangePetSprite {
+    --petdex-scale: 0.46;
+  }
+}
+
+@keyframes exchange-packet {
+  0% {
+    opacity: 0.8;
+    transform: translateX(-82px) scale(0.86);
+  }
+
+  42% {
+    opacity: 1;
+    transform: translateX(0) scale(1.08) rotate(8deg);
+  }
+
+  100% {
+    opacity: 0.95;
+    transform: translateX(82px) scale(0.9);
+  }
+}
+
+@keyframes exchange-beam {
+  0% {
+    transform: translateX(-34%) translateY(-3px);
+  }
+
+  100% {
+    transform: translateX(34%) translateY(-3px);
+  }
+}
+
 .configSidebar {
   align-content: start;
 }
@@ -9317,11 +9965,19 @@ html:not([data-window="pet"]) body {
 
 .petdexSprite {
   animation: petdex-sprite-state var(--sprite-duration) steps(var(--sprite-frames)) infinite;
+  background-image: var(--sprite-url);
+  background-repeat: no-repeat;
+  background-size: 1536px 1872px;
   will-change: background-position;
 }
 
 .petdexSpriteStatic {
   background-position: 0 var(--sprite-y);
+}
+
+.customActionSpriteFrame .petdexSprite,
+.customActionSpriteFrame .petdexSpriteStatic {
+  image-rendering: auto;
 }
 
 .avatarPetdexRig .petGlow {
@@ -9433,6 +10089,10 @@ html:not([data-window="pet"]) body {
 @media (max-width: 860px) {
   .petdexTemplateGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .actionPreviewStrip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 

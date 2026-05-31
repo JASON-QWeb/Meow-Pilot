@@ -7,12 +7,26 @@ target/
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/
 *.dmg
+*.app
+*.pkg
+*.msi
+*.AppImage
+*.deb
+*.rpm
 .env
 .env.*
 !.env.example
 .DS_Store
 *.log
 coverage/
+*.tsbuildinfo
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
 
 .playwright-cli
 output/playwright
+.vite/
+.turbo/
+.cache/

@@ -61,6 +61,15 @@ Tauri 配置了两个窗口：
 - `pet`：透明、无边框、置顶的桌面宠物窗口。
 - `work`：普通工作窗口，默认隐藏，点击宠物后打开。
 
+## 宠物形象与动作图集
+
+工作窗口的“形象”页支持两类宠物素材：
+
+- 内置 Petdex 模板：使用 1536×1872 的 spritesheet，每帧 192×208，包含待机、左右跑、挥手、跳跃、失败、等待、奔跑、思考等动作行。
+- 自定义图片：导入 JPG、PNG 或 WebP 后，本机自动生成三层拆件和同规格 Petdex 动作图集。应用后桌面宠物会优先播放这张自定义动作图集，旧素材会回退到三层拆件动画。
+
+图片工作室可以导出兼容 Petdex 结构的 zip 包，里面包含 `pet.json` 和 `spritesheet.webp`（在不支持 WebP canvas 导出的环境里会导出 `spritesheet.png`）。
+
 ## 模型配置
 
 推荐启动 App 后在配置页的 `模型 API` 面板里保存 provider、API Key、模型名和可选 Base URL。本机配置写入 `.pet/ai-provider.json`，不会提交到 git。

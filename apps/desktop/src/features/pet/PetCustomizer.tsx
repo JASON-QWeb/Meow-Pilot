@@ -21,8 +21,10 @@ export function PetCustomizer({ profile, asset, onChange, onSaveAsset, onDeleteA
   const currentAppearanceLabel = currentPetdexTemplate
     ? `Petdex 模板: ${currentPetdexTemplate.displayName}`
     : profile.appearance === "layered-image" && asset
-      ? "自定义图片"
-      : "QBot 立体狐猫";
+      ? asset.actionSpritesheet
+        ? "自定义动作图集"
+        : "自定义图片"
+      : "Noir 默认形象";
 
   return (
     <section className="customizationPage" aria-label="宠物图片工作室">
@@ -102,8 +104,10 @@ export function PetCustomizer({ profile, asset, onChange, onSaveAsset, onDeleteA
               {currentPetdexTemplate
                 ? `正在使用 Petdex 模板，作者 ${currentPetdexTemplate.submittedBy}`
                 : profile.appearance === "layered-image" && asset
-                  ? "正在使用自定义分层形象"
-                  : "默认使用 QBot 立体卡通动物预设"}
+                  ? asset.actionSpritesheet
+                    ? "正在使用自定义 Petdex 规格动作图集"
+                    : "正在使用自定义分层形象"
+                  : "默认使用 Noir 立体卡通预设"}
             </p>
             <div className="petdexTemplateGrid" aria-label="Petdex 模板">
               {petdexTemplates.map((template) => (

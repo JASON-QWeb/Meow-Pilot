@@ -12,6 +12,7 @@ type PetdexSpriteProps = {
 
 export function PetdexSprite({ template, state = "idle", scale = 1, animated = true, className = "", label }: PetdexSpriteProps) {
   const spriteState = petdexSpriteStates[state] ?? petdexSpriteStates.idle;
+  const spriteImage = `url("${template.sprite.replace(/"/g, '\\"')}")`;
 
   return (
     <span
@@ -24,7 +25,8 @@ export function PetdexSprite({ template, state = "idle", scale = 1, animated = t
         className={animated ? "petdexSprite" : "petdexSpriteStatic"}
         style={
           {
-            "--sprite-url": `url("${template.sprite.replace(/"/g, '\\"')}")`,
+            backgroundImage: spriteImage,
+            backgroundPosition: animated ? undefined : `0 ${spriteState.row * -208}px`,
             "--sprite-row": spriteState.row,
             "--sprite-frames": spriteState.frames,
             "--sprite-duration": `${spriteState.durationMs}ms`,

@@ -56,13 +56,15 @@ export const petdexSpriteStates: Record<PetdexSpriteStateId, PetdexSpriteState> 
   review: { id: "review", row: 8, frames: 6, durationMs: 1030 },
 };
 
+const projectPetdexSource = (fileName: string) => `project:apps/desktop/src/assets/petdex/${fileName}`;
+
 export const petdexTemplates: PetdexTemplate[] = [
   {
     slug: "noir-webling",
     displayName: "Noir Webling",
     submittedBy: "local zip",
     sprite: noirWeblingSprite,
-    sourceUrl: "/Users/justq/Downloads/noir-webling.zip",
+    sourceUrl: projectPetdexSource("noir-webling.webp"),
     accentColor: "#9ca3af",
   },
   {
@@ -70,7 +72,7 @@ export const petdexTemplates: PetdexTemplate[] = [
     displayName: "Doraemon",
     submittedBy: "local zip",
     sprite: doraemonSprite,
-    sourceUrl: "/Users/justq/Downloads/zip.zip",
+    sourceUrl: projectPetdexSource("doraemon.webp"),
     accentColor: "#38bdf8",
   },
   {
@@ -78,7 +80,7 @@ export const petdexTemplates: PetdexTemplate[] = [
     displayName: "EVE",
     submittedBy: "local zip",
     sprite: eveSprite,
-    sourceUrl: "/Users/justq/Downloads/zip (1).zip",
+    sourceUrl: projectPetdexSource("eve.webp"),
     accentColor: "#60a5fa",
   },
   {
@@ -86,7 +88,7 @@ export const petdexTemplates: PetdexTemplate[] = [
     displayName: "chaossprite",
     submittedBy: "local zip",
     sprite: chaosspriteDefaultSprite,
-    sourceUrl: "/Users/justq/Downloads/zip (2).zip",
+    sourceUrl: projectPetdexSource("chaossprite-default.png"),
     accentColor: "#fb7185",
   },
   {
@@ -94,7 +96,7 @@ export const petdexTemplates: PetdexTemplate[] = [
     displayName: "Yupi Penguin",
     submittedBy: "local zip",
     sprite: yupiPenguinSprite,
-    sourceUrl: "/Users/justq/Downloads/zip (3).zip",
+    sourceUrl: projectPetdexSource("yupi-penguin.webp"),
     accentColor: "#60a5fa",
   },
   {
@@ -102,7 +104,7 @@ export const petdexTemplates: PetdexTemplate[] = [
     displayName: "Capy",
     submittedBy: "local zip",
     sprite: capySprite,
-    sourceUrl: "/Users/justq/Downloads/zip (4).zip",
+    sourceUrl: projectPetdexSource("capy.webp"),
     accentColor: "#f59e0b",
   },
   {
@@ -110,7 +112,7 @@ export const petdexTemplates: PetdexTemplate[] = [
     displayName: "fafa",
     submittedBy: "local zip",
     sprite: fafaSprite,
-    sourceUrl: "/Users/justq/Downloads/zip (5).zip",
+    sourceUrl: projectPetdexSource("fafa.webp"),
     accentColor: "#a8a29e",
   },
   {
@@ -118,7 +120,7 @@ export const petdexTemplates: PetdexTemplate[] = [
     displayName: "Clawd",
     submittedBy: "local zip",
     sprite: clawdSprite,
-    sourceUrl: "/Users/justq/Downloads/zip (6).zip",
+    sourceUrl: projectPetdexSource("clawd.webp"),
     accentColor: "#c084fc",
   },
   {
@@ -126,7 +128,7 @@ export const petdexTemplates: PetdexTemplate[] = [
     displayName: "ducduc",
     submittedBy: "local zip",
     sprite: ducducSprite,
-    sourceUrl: "/Users/justq/Downloads/zip (7).zip",
+    sourceUrl: projectPetdexSource("ducduc.webp"),
     accentColor: "#facc15",
   },
   {
@@ -134,7 +136,7 @@ export const petdexTemplates: PetdexTemplate[] = [
     displayName: "耄耋",
     submittedBy: "local zip",
     sprite: maodieSprite,
-    sourceUrl: "/Users/justq/Downloads/zip (8).zip",
+    sourceUrl: projectPetdexSource("maodie.webp"),
     accentColor: "#fb923c",
   },
   {

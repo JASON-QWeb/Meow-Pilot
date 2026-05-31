@@ -1106,7 +1106,7 @@ function ensureSession() {
 }
 
 function welcomeText() {
-  return "我在这儿。你直接说想做什么就行；需要整理成表格、卡片或播放器时，我会把它放成能继续操作的样子。";
+  return "我是你的AI宠物Q，请问有什么需要我做的？";
 }
 
 function startRun(state: ClientState, runId: string) {
@@ -1132,7 +1132,7 @@ function createInlineMediaSurface(text: string): SurfaceSpec | undefined {
   const host = sourceUrl ? hostLabel(sourceUrl) : undefined;
   const layout = mediaPlayer({
     media: intent,
-    title: mediaTitle(intent, sourceUrl),
+    title: mediaTitle(intent, sourceUrl, text),
     subtitle: sourceUrl ? `来源：${host ?? sourceUrl}` : "选择本地文件，或发送可播放链接",
     provider: host,
     posterTone: intent === "music" ? "aqua" : "rose",
@@ -1197,11 +1197,36 @@ function mediaPlayer({
 function inferMediaIntent(text: string): "music" | "video" | undefined {
   const lower = text.toLowerCase();
   const sourceUrl = extractFirstUrl(text);
-  if (containsAny(lower, ["看视频", "视频", "video", "youtube", "youtu.be", "bilibili", "b站", "movie", "clip"])) return "video";
+  if (
+    isMoviePlaybackRequest(lower) ||
+    containsAny(lower, [
+      "看视频",
+      "视频",
+      "video",
+      "youtube",
+      "youtu.be",
+      "bilibili",
+      "b站",
+      "movie",
+      "film",
+      "clip",
+    ])
+  ) {
+    return "video";
+  }
   if (containsAny(lower, ["听歌", "音乐", "播放歌曲", "歌曲", "music", "song", "spotify", "audio", "podcast"])) return "music";
   if (sourceUrl && isVideoUrl(sourceUrl)) return "video";
   if (sourceUrl && isAudioUrl(sourceUrl)) return "music";
   return undefined;
+}
+
+function isMoviePlaybackRequest(lowerText: string) {
+  return (
+    /(播放|放|看|打开).{0,6}(电影|影片|剧集|电视剧)/.test(lowerText) ||
+    /(电影|影片).{0,4}(播放|播放器)/.test(lowerText) ||
+    /(追剧|看剧)/.test(lowerText) ||
+    /(watch|play|open).{0,16}(movie|film|episode|show)/.test(lowerText)
+  );
 }
 
 function extractFirstUrl(text: string) {
@@ -1257,8 +1282,13 @@ function musicEmbedUrl(sourceUrl: string) {
   }
 }
 
-function mediaTitle(media: "music" | "video", sourceUrl?: string) {
-  if (!sourceUrl) return media === "music" ? "音乐播放器" : "视频播放器";
+function mediaTitle(media: "music" | "video", sourceUrl?: string, requestText = "") {
+  if (!sourceUrl) {
+    if (media === "video" && isMoviePlaybackRequest(requestText.toLowerCase())) {
+      return "电影播放器";
+    }
+    return media === "music" ? "音乐播放器" : "视频播放器";
+  }
   try {
     const url = new URL(sourceUrl);
     const lastPart = decodeURIComponent(url.pathname.split("/").filter(Boolean).at(-1) ?? "");
