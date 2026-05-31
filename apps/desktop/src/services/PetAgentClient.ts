@@ -67,7 +67,7 @@ export class PetAgentClient {
     socket.send(JSON.stringify(frame));
 
     return new Promise((resolve, reject) => {
-      const timeoutMs = method.startsWith("voice.") ? 60_000 : 12_000;
+      const timeoutMs = method.startsWith("pet.image.") ? 120_000 : method.startsWith("voice.") ? 60_000 : 12_000;
       this.pending.set(id, {
         resolve: (payload) => resolve(payload as TPayload),
         reject,

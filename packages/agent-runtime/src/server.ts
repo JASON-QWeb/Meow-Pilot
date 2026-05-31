@@ -20,6 +20,8 @@ import {
   type MemoryProposalEvent,
   type PetActivityEvent,
   type PetEmotionEvent,
+  type PetImageCutoutParams,
+  type PetImageCutoutPayload,
   type ProviderConfigureParams,
   type ProviderConfigurePayload,
   type RpcRequest,
@@ -47,6 +49,7 @@ import {
 import { listProviders, skills } from "./catalog";
 import { saveLocalAiConfig, saveLocalXiaomiVoiceConfig } from "./apiConfig";
 import { streamWithAiSdk, synthesizeWithAiSdk, transcribeWithAiSdk } from "./providers/aiSdk";
+import { cutoutPetImageWithConfiguredAi, PetImageCutoutError } from "./providers/openaiImageCutout";
 import { synthesizeWithXiaomi, transcribeWithXiaomi } from "./providers/xiaomi";
 import { PetStore, type RuntimeSession } from "./storage";
 import { parseAgentSurfaceResponse } from "./surfaceProtocol";
@@ -92,6 +95,7 @@ const methods: LocalRpcMethod[] = [
   "skill.list",
   "skill.run",
   "usage.list",
+  "pet.image.cutout",
   "provider.configure",
   "provider.list",
 ];
@@ -467,6 +471,33 @@ async function handleRequest(socket: WebSocket, state: ClientState, request: Rpc
 
     case "usage.list": {
       sendOk(socket, request.id, { summaries: await listTokenUsage() } satisfies TokenUsageListPayload);
+      return;
+    }
+
+    case "pet.image.cutout": {
+      const params = request.params as PetImageCutoutParams | undefined;
+      if (!params?.imageDataUrl) {
+        sendError(socket, request.id, "BAD_REQUEST", "pet.image.cutout requires imageDataUrl.");
+        return;
+      }
+
+      let payload: PetImageCutoutPayload | null;
+      try {
+        payload = await cutoutPetImageWithConfiguredAi(params);
+      } catch (error) {
+        if (error instanceof PetImageCutoutError) {
+          sendError(socket, request.id, error.code, error.message);
+          return;
+        }
+        throw error;
+      }
+
+      if (!payload) {
+        sendError(socket, request.id, "PROVIDER_UNAVAILABLE", "AI 智能抠图需要先配置一个支持图片生成/编辑工具的模型。");
+        return;
+      }
+
+      sendOk(socket, request.id, payload satisfies PetImageCutoutPayload);
       return;
     }
 

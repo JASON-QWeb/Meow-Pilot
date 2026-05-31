@@ -76,7 +76,7 @@ export const AI_PROVIDER_DEFINITIONS: AiProviderDefinition[] = [
     envPrefix: "OPENAI",
     envKey: "OPENAI_API_KEY",
     defaultModel: "gpt-4o-mini",
-    capabilities: ["text", "vision", "tool-calling", "json-schema"],
+    capabilities: ["text", "vision", "image-generation-tool", "tool-calling", "json-schema"],
   },
   {
     id: "anthropic",
@@ -125,7 +125,7 @@ export const AI_PROVIDER_DEFINITIONS: AiProviderDefinition[] = [
     envPrefix: "OPENAI_COMPATIBLE",
     envKey: "OPENAI_COMPATIBLE_API_KEY",
     defaultModel: "gpt-4o-mini",
-    capabilities: ["text", "vision", "tool-calling", "json-schema"],
+    capabilities: ["text", "vision", "image-generation-tool", "tool-calling", "json-schema"],
   },
 ];
 

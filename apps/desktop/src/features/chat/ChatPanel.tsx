@@ -390,13 +390,19 @@ function MarkdownText({ text }: { text: string }) {
 }
 
 function renderMarkdownBlocks(text: string) {
-  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const lines = normalizeMarkdownTables(text).split("\n");
   const blocks: ReactNode[] = [];
   let index = 0;
 
   while (index < lines.length) {
     const line = lines[index] ?? "";
     if (!line.trim()) {
+      index += 1;
+      continue;
+    }
+
+    if (isHorizontalRule(line)) {
+      blocks.push(<hr key={`hr-${blocks.length}`} />);
       index += 1;
       continue;
     }
@@ -429,6 +435,13 @@ function renderMarkdownBlocks(text: string) {
       continue;
     }
 
+    const table = parseMarkdownTable(lines, index, blocks.length);
+    if (table) {
+      blocks.push(table.node);
+      index = table.nextIndex;
+      continue;
+    }
+
     if (/^\s*[-*]\s+/.test(line)) {
       const items: ReactNode[] = [];
       while (index < lines.length && /^\s*[-*]\s+/.test(lines[index] ?? "")) {
@@ -457,6 +470,8 @@ function renderMarkdownBlocks(text: string) {
       (lines[index] ?? "").trim() &&
       !/^```/.test(lines[index] ?? "") &&
       !/^(#{1,3})\s+/.test(lines[index] ?? "") &&
+      !isHorizontalRule(lines[index] ?? "") &&
+      !isTableStart(lines, index) &&
       !/^\s*[-*]\s+/.test(lines[index] ?? "") &&
       !/^\s*\d+[.)]\s+/.test(lines[index] ?? "")
     ) {
@@ -467,6 +482,83 @@ function renderMarkdownBlocks(text: string) {
   }
 
   return blocks;
+}
+
+function normalizeMarkdownTables(text: string) {
+  return text.replace(/\r\n/g, "\n").replace(/\|\s+(?=\|)/g, "|\n");
+}
+
+function isHorizontalRule(line: string) {
+  return /^(?:-{3,}|\*{3,}|_{3,})$/.test(line.trim());
+}
+
+function isTableStart(lines: string[], index: number) {
+  return isTableRow(lines[index] ?? "") && isTableSeparator(lines[index + 1] ?? "");
+}
+
+function parseMarkdownTable(lines: string[], start: number, blockIndex: number) {
+  if (!isTableStart(lines, start)) return null;
+
+  const headers = splitTableRow(lines[start] ?? "");
+  const columnCount = headers.length;
+  const rows: string[][] = [];
+  let index = start + 2;
+
+  while (index < lines.length && isTableRow(lines[index] ?? "")) {
+    if (isTableSeparator(lines[index] ?? "")) break;
+    rows.push(normalizeTableRow(splitTableRow(lines[index] ?? ""), columnCount));
+    index += 1;
+  }
+
+  return {
+    nextIndex: index,
+    node: (
+      <div className="messageTableWrap" key={`table-${blockIndex}`}>
+        <table>
+          <thead>
+            <tr>
+              {headers.map((header, cellIndex) => (
+                <th key={`th-${cellIndex}`}>{renderInlineMarkdown(header, `table-${blockIndex}-h-${cellIndex}`)}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, rowIndex) => (
+              <tr key={`tr-${rowIndex}`}>
+                {row.map((cell, cellIndex) => (
+                  <td key={`td-${rowIndex}-${cellIndex}`}>{renderInlineMarkdown(cell, `table-${blockIndex}-${rowIndex}-${cellIndex}`)}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    ),
+  };
+}
+
+function isTableRow(line: string) {
+  const trimmed = line.trim();
+  return trimmed.startsWith("|") && trimmed.endsWith("|") && trimmed.slice(1, -1).includes("|");
+}
+
+function isTableSeparator(line: string) {
+  if (!isTableRow(line)) return false;
+  const cells = splitTableRow(line);
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.replace(/\s/g, "")));
+}
+
+function splitTableRow(line: string) {
+  return line
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((cell) => cell.trim());
+}
+
+function normalizeTableRow(row: string[], columnCount: number) {
+  return Array.from({ length: columnCount }, (_, index) => row[index] ?? "");
 }
 
 function renderInlineMarkdown(text: string, keyPrefix: string) {

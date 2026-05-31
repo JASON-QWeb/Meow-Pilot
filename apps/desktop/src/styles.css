@@ -271,6 +271,11 @@ html[data-window="pet"] .appShell {
   gap: 10px;
 }
 
+.petOverlayPanel .petOverlayMenuHeader {
+  grid-template-columns: 28px;
+  justify-content: end;
+}
+
 .petOverlayPanel header strong {
   display: block;
   overflow: hidden;
@@ -310,9 +315,8 @@ html[data-window="pet"] .appShell {
 
 .petContextActions button {
   display: grid;
-  min-height: 48px;
+  min-height: 42px;
   grid-template-columns: 28px minmax(0, 1fr);
-  grid-template-rows: auto auto;
   align-items: center;
   column-gap: 9px;
   border: 1px solid rgba(8, 9, 10, 0.08);
@@ -329,7 +333,6 @@ html[data-window="pet"] .appShell {
 }
 
 .petContextActions svg {
-  grid-row: 1 / span 2;
   color: #267167;
 }
 
@@ -407,7 +410,9 @@ html[data-window="pet"] .appShell {
 
 .petQuickChatForm button,
 .petMusicPicker,
-.petMusicReplace {
+.petMusicReplace,
+.petVideoPicker,
+.petVideoReplace {
   display: inline-grid;
   min-height: 34px;
   place-items: center;
@@ -432,7 +437,17 @@ html[data-window="pet"] .appShell {
   color: #111;
 }
 
-.petMusicPlayer {
+.petVideoPicker {
+  grid-auto-flow: column;
+  justify-content: center;
+  gap: 8px;
+  min-height: 98px;
+  background: #eef4ff;
+  color: #111;
+}
+
+.petMusicPlayer,
+.petVideoPlayer {
   display: grid;
   gap: 10px;
   border-radius: 14px;
@@ -445,7 +460,21 @@ html[data-window="pet"] .appShell {
   width: 100%;
 }
 
-.petMusicReplace {
+.petVideoPlayer {
+  padding: 8px;
+  color: #111;
+}
+
+.petVideoPlayer video {
+  display: block;
+  width: 100%;
+  max-height: 170px;
+  border-radius: 10px;
+  background: #111;
+}
+
+.petMusicReplace,
+.petVideoReplace {
   justify-self: start;
   padding: 0 12px;
 }
@@ -1747,7 +1776,7 @@ h1 {
 .petStudio {
   display: grid;
   gap: 15px;
-  width: min(1080px, 100%);
+  width: min(920px, 100%);
   max-height: min(900px, calc(100vh - 44px));
   overflow: auto;
   padding: 20px;
@@ -1794,7 +1823,7 @@ h1 {
 
 .petStudioWorkspace {
   display: grid;
-  grid-template-columns: minmax(230px, 0.85fr) minmax(230px, 0.85fr) minmax(270px, 1fr);
+  grid-template-columns: repeat(2, minmax(260px, 1fr));
   gap: 12px;
 }
 
@@ -1810,7 +1839,7 @@ h1 {
 
 .studioImageCard {
   display: flex;
-  min-height: 362px;
+  min-height: 0;
   flex-direction: column;
   gap: 10px;
 }
@@ -1951,7 +1980,8 @@ h1 {
   white-space: nowrap;
 }
 
-.localBadge {
+.localBadge,
+.aiCutoutBadge {
   position: absolute;
   right: 22px;
   bottom: 24px;
@@ -1962,6 +1992,89 @@ h1 {
   font-size: 11px;
   font-weight: 850;
   text-transform: uppercase;
+}
+
+.primaryPreviewCard .localBadge,
+.primaryPreviewCard .aiCutoutBadge {
+  top: 46px;
+  bottom: auto;
+}
+
+.studioPresetGroup {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.studioPresetGroup button {
+  min-height: 34px;
+  border: 1px solid rgba(21, 33, 31, 0.1);
+  border-radius: 8px;
+  background: #f5f8f6;
+  color: #31413c;
+  font-size: 12px;
+  font-weight: 850;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    transform 160ms ease;
+}
+
+.studioPresetGroup button:hover {
+  transform: translateY(-1px);
+}
+
+.studioPresetGroup button.active {
+  border-color: #172521;
+  background: #172521;
+  color: #fff;
+}
+
+.studioAdvancedPanel {
+  border: 1px solid rgba(21, 33, 31, 0.1);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.studioAdvancedPanel summary {
+  display: flex;
+  min-height: 48px;
+  cursor: pointer;
+  list-style: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 13px;
+  color: #172521;
+  font-weight: 900;
+}
+
+.studioAdvancedPanel summary::-webkit-details-marker {
+  display: none;
+}
+
+.studioAdvancedPanel summary::after {
+  color: #6a7773;
+  content: "展开";
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.studioAdvancedPanel[open] summary::after {
+  content: "收起";
+}
+
+.studioAdvancedPanel small {
+  color: #6a7773;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.studioAdvancedBody {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.8fr) minmax(0, 1.2fr);
+  gap: 12px;
+  padding: 0 13px 13px;
 }
 
 .studioControls {
@@ -2026,6 +2139,12 @@ h1 {
 .layerReview {
   display: grid;
   gap: 12px;
+}
+
+.advancedDownloadRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .layerReviewTitle {
@@ -3422,7 +3541,12 @@ th {
   }
 
   .petStudioWorkspace,
+  .studioAdvancedBody,
   .layerTiles {
+    grid-template-columns: 1fr;
+  }
+
+  .studioPresetGroup {
     grid-template-columns: 1fr;
   }
 
@@ -4692,7 +4816,8 @@ html:not([data-window="pet"]) body {
 
 .studioImageCard,
 .studioControls,
-.layerReview {
+.layerReview,
+.studioAdvancedPanel {
   border: 1px solid #f1f5f9;
   border-radius: 22px;
 }
@@ -4707,6 +4832,10 @@ html:not([data-window="pet"]) body {
 .studioClose {
   border-radius: 16px;
   background: #f8fafc;
+}
+
+.studioPresetGroup button {
+  border-radius: 16px;
 }
 
 @media (max-width: 980px) {
@@ -10012,11 +10141,16 @@ html:not([data-window="pet"]) body {
 
 .petdexTemplateGrid {
   display: grid;
+  max-height: min(460px, 42vh);
+  overflow-y: auto;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
+  padding-right: 4px;
+  overscroll-behavior: contain;
 }
 
-.petdexTemplateGrid button {
+.petdexTemplateGrid button,
+.petdexTemplateAdd {
   display: grid;
   min-width: 0;
   min-height: 86px;
@@ -10030,13 +10164,15 @@ html:not([data-window="pet"]) body {
   color: var(--dash-ink, #08090a);
   font-size: 11px;
   font-weight: 850;
+  text-decoration: none;
   transition:
     border-color 160ms ease,
     background 160ms ease,
     transform 160ms ease;
 }
 
-.petdexTemplateGrid button:hover {
+.petdexTemplateGrid button:hover,
+.petdexTemplateAdd:hover {
   border-color: rgba(8, 9, 10, 0.32);
   transform: translateY(-1px);
 }
@@ -10051,7 +10187,18 @@ html:not([data-window="pet"]) body {
   filter: drop-shadow(0 6px 3px rgba(8, 9, 10, 0.14));
 }
 
-.petdexTemplateGrid button > span:last-child {
+.petdexTemplateAdd {
+  border-style: dashed;
+  background: #fff;
+  color: #111827;
+}
+
+.petdexTemplateAdd svg {
+  align-self: end;
+}
+
+.petdexTemplateGrid button > span:last-child,
+.petdexTemplateAdd > span:last-child {
   width: 100%;
   overflow: hidden;
   text-align: center;
@@ -10088,6 +10235,7 @@ html:not([data-window="pet"]) body {
 
 @media (max-width: 860px) {
   .petdexTemplateGrid {
+    max-height: 330px;
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -10242,4 +10390,140 @@ html:not([data-window="pet"]) body {
   .pieDonut {
     justify-self: center;
   }
+}
+
+/* Q Assistant requested polish */
+.messageMarkdown hr {
+  width: 100%;
+  height: 1px;
+  border: 0;
+  margin: 2px 0;
+  background: rgba(21, 33, 31, 0.14);
+}
+
+.messageTableWrap {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid rgba(21, 33, 31, 0.1);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.messageMarkdown table {
+  width: 100%;
+  min-width: 420px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.messageMarkdown th,
+.messageMarkdown td {
+  padding: 9px 11px;
+  border-bottom: 1px solid rgba(21, 33, 31, 0.1);
+  color: #20302c;
+  text-align: left;
+  vertical-align: top;
+}
+
+.messageMarkdown th {
+  background: rgba(21, 33, 31, 0.05);
+  color: #172521;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: none;
+}
+
+.messageMarkdown tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.message.user .messageTableWrap {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.message.user .messageMarkdown hr {
+  background: rgba(255, 255, 255, 0.26);
+}
+
+.message.user .messageMarkdown table,
+.message.user .messageMarkdown th,
+.message.user .messageMarkdown td {
+  color: #fff;
+}
+
+.message.user .messageMarkdown th {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.configOnlyPage {
+  align-items: stretch;
+}
+
+.configOnlyPage > .configSidebar,
+.configOnlyPage > .apiPanel {
+  align-self: stretch;
+  height: 100%;
+}
+
+.configOnlyPage > .apiPanel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.configOnlyPage .panelTitle {
+  min-height: 45px;
+}
+
+.configOnlyPage .titleIcon {
+  flex: 0 0 45px;
+}
+
+.memoryEditorHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.memoryEditorHeader span {
+  min-width: 0;
+}
+
+.memoryEditorHeader button {
+  display: inline-flex;
+  min-height: 32px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--clean-line);
+  border-radius: 11px;
+  padding: 0 10px;
+  background: #fff;
+  color: var(--clean-ink);
+  font-size: 12px;
+  font-weight: 900;
+  transition:
+    background 160ms ease,
+    transform 160ms ease,
+    opacity 160ms ease;
+}
+
+.memoryEditorHeader button:hover:not(:disabled) {
+  background: var(--clean-lime);
+  transform: translateY(-1px);
+}
+
+.memoryEditorHeader button:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.memoryEditorHeader button:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
+.memoryNotice {
+  margin-top: -4px;
 }

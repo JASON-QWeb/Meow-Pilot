@@ -296,6 +296,7 @@ export function App() {
           onChange={setPetProfile}
           onSaveAsset={saveGeneratedPet}
           onDeleteAsset={deleteGeneratedPet}
+          onCutoutImage={agent.cutoutPetImage}
         />
       );
     }

@@ -36,6 +36,60 @@ export async function buildPetdexPackage(asset: PetRigAsset): Promise<Blob> {
   ]);
 }
 
+export async function buildPetRigLayerPackage(asset: PetRigAsset): Promise<Blob> {
+  const preview = dataUrlToBytes(asset.previewDataUrl);
+  const files: ZipFile[] = [
+    {
+      name: "pet-rig.json",
+      bytes: encoder.encode(
+        JSON.stringify(
+          {
+            id: asset.id,
+            sourceName: asset.sourceName,
+            createdAt: asset.createdAt,
+            updatedAt: asset.updatedAt,
+            settings: asset.settings,
+            layers: asset.layers.map((layer) => ({
+              id: layer.id,
+              label: layer.label,
+              path: `layers/${layer.id}.png`,
+              offsetX: layer.offsetX,
+              offsetY: layer.offsetY,
+            })),
+            actionSpritesheet: asset.actionSpritesheet
+              ? {
+                  path: `actions/spritesheet.${asset.actionSpritesheet.mimeType === "image/png" ? "png" : "webp"}`,
+                  format: asset.actionSpritesheet.format,
+                  frameWidth: asset.actionSpritesheet.frameWidth,
+                  frameHeight: asset.actionSpritesheet.frameHeight,
+                  columns: asset.actionSpritesheet.columns,
+                  rows: asset.actionSpritesheet.rows,
+                }
+              : null,
+          },
+          null,
+          2,
+        ),
+      ),
+    },
+    { name: "preview.png", bytes: preview.bytes },
+    ...asset.layers.map((layer) => ({
+      name: `layers/${layer.id}.png`,
+      bytes: dataUrlToBytes(layer.imageDataUrl).bytes,
+    })),
+  ];
+
+  if (asset.actionSpritesheet) {
+    const sprite = dataUrlToBytes(asset.actionSpritesheet.dataUrl);
+    files.push({
+      name: `actions/spritesheet.${asset.actionSpritesheet.mimeType === "image/png" ? "png" : "webp"}`,
+      bytes: sprite.bytes,
+    });
+  }
+
+  return createStoredZip(files);
+}
+
 function createStoredZip(files: ZipFile[]) {
   const localParts: Array<Uint8Array> = [];
   const centralParts: Array<Uint8Array> = [];

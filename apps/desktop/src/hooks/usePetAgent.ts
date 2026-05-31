@@ -17,6 +17,8 @@ import type {
   PetActivityEvent,
   PetEmotion,
   PetEmotionEvent,
+  PetImageCutoutParams,
+  PetImageCutoutPayload,
   ProviderConfigureParams,
   ProviderConfigurePayload,
   ProviderSummary,
@@ -270,6 +272,11 @@ export function usePetAgent() {
     [client],
   );
 
+  const cutoutPetImage = useCallback(
+    (params: PetImageCutoutParams) => client.request<PetImageCutoutPayload>("pet.image.cutout", params),
+    [client],
+  );
+
   const handleSurfaceAction = useCallback(
     async (action: UIAction, surface: SurfaceSpec) => {
       if (action.id === "commit-memory" && memoryProposal) {
@@ -414,11 +421,11 @@ export function usePetAgent() {
   }, [client]);
 
   const saveMemoryText = useCallback(
-    async (content: string) => {
+    async (content: string, id = "mem_manual_profile") => {
       const trimmed = content.trim();
       if (!trimmed) return;
       const memory: Memory = {
-        id: "mem_manual_profile",
+        id,
         kind: "user_profile",
         scope: "private",
         content: trimmed,
@@ -459,6 +466,7 @@ export function usePetAgent() {
     sendVoiceTranscript,
     transcribeVoice,
     speakText,
+    cutoutPetImage,
     handleSurfaceAction,
     resumeSession,
     createSession,

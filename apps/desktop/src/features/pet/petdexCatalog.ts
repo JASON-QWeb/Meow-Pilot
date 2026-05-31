@@ -62,7 +62,7 @@ export const petdexTemplates: PetdexTemplate[] = [
   {
     slug: "noir-webling",
     displayName: "Noir Webling",
-    submittedBy: "local zip",
+    submittedBy: "Petdex",
     sprite: noirWeblingSprite,
     sourceUrl: projectPetdexSource("noir-webling.webp"),
     accentColor: "#9ca3af",
@@ -70,7 +70,7 @@ export const petdexTemplates: PetdexTemplate[] = [
   {
     slug: "doraemon",
     displayName: "Doraemon",
-    submittedBy: "local zip",
+    submittedBy: "Petdex",
     sprite: doraemonSprite,
     sourceUrl: projectPetdexSource("doraemon.webp"),
     accentColor: "#38bdf8",
@@ -78,7 +78,7 @@ export const petdexTemplates: PetdexTemplate[] = [
   {
     slug: "eve",
     displayName: "EVE",
-    submittedBy: "local zip",
+    submittedBy: "Petdex",
     sprite: eveSprite,
     sourceUrl: projectPetdexSource("eve.webp"),
     accentColor: "#60a5fa",
@@ -86,7 +86,7 @@ export const petdexTemplates: PetdexTemplate[] = [
   {
     slug: "chaossprite-default",
     displayName: "chaossprite",
-    submittedBy: "local zip",
+    submittedBy: "Petdex",
     sprite: chaosspriteDefaultSprite,
     sourceUrl: projectPetdexSource("chaossprite-default.png"),
     accentColor: "#fb7185",
@@ -94,7 +94,7 @@ export const petdexTemplates: PetdexTemplate[] = [
   {
     slug: "yupi-penguin",
     displayName: "Yupi Penguin",
-    submittedBy: "local zip",
+    submittedBy: "Petdex",
     sprite: yupiPenguinSprite,
     sourceUrl: projectPetdexSource("yupi-penguin.webp"),
     accentColor: "#60a5fa",
@@ -102,7 +102,7 @@ export const petdexTemplates: PetdexTemplate[] = [
   {
     slug: "capy",
     displayName: "Capy",
-    submittedBy: "local zip",
+    submittedBy: "Petdex",
     sprite: capySprite,
     sourceUrl: projectPetdexSource("capy.webp"),
     accentColor: "#f59e0b",
@@ -110,7 +110,7 @@ export const petdexTemplates: PetdexTemplate[] = [
   {
     slug: "fafa",
     displayName: "fafa",
-    submittedBy: "local zip",
+    submittedBy: "Petdex",
     sprite: fafaSprite,
     sourceUrl: projectPetdexSource("fafa.webp"),
     accentColor: "#a8a29e",
@@ -118,7 +118,7 @@ export const petdexTemplates: PetdexTemplate[] = [
   {
     slug: "clawd",
     displayName: "Clawd",
-    submittedBy: "local zip",
+    submittedBy: "Petdex",
     sprite: clawdSprite,
     sourceUrl: projectPetdexSource("clawd.webp"),
     accentColor: "#c084fc",
@@ -126,7 +126,7 @@ export const petdexTemplates: PetdexTemplate[] = [
   {
     slug: "ducduc",
     displayName: "ducduc",
-    submittedBy: "local zip",
+    submittedBy: "Petdex",
     sprite: ducducSprite,
     sourceUrl: projectPetdexSource("ducduc.webp"),
     accentColor: "#facc15",
@@ -134,7 +134,7 @@ export const petdexTemplates: PetdexTemplate[] = [
   {
     slug: "maodie",
     displayName: "耄耋",
-    submittedBy: "local zip",
+    submittedBy: "Petdex",
     sprite: maodieSprite,
     sourceUrl: projectPetdexSource("maodie.webp"),
     accentColor: "#fb923c",

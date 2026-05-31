@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Brain, Check, Cpu, Heart, KeyRound, Mic2, PackagePlus, RefreshCw, Send, Shield, Sparkles, X, Zap } from "lucide-react";
+import { Brain, Check, Cpu, Heart, KeyRound, Mic2, PackagePlus, RefreshCw, Save, Send, Settings2, Shield, Sparkles, X, Zap } from "lucide-react";
 import { PetdexSprite } from "../pet/PetdexSprite";
 import { getPetdexTemplate, pickFriendPetdexTemplate } from "../pet/petdexCatalog";
 import type { PetProfile } from "../pet/petProfile";
@@ -34,7 +34,7 @@ type RuntimeSidePanelProps = {
   onExchangeFriend: (friendId: string) => void | Promise<void>;
   onConfigureProvider: (params: ProviderConfigureParams) => void | Promise<void>;
   onConfigureVoice: (params: VoiceConfigureParams) => void | Promise<void>;
-  onSaveMemory: (content: string) => void | Promise<void>;
+  onSaveMemory: (content: string, id?: string) => void | Promise<void>;
 };
 
 type FriendCard = {
@@ -56,6 +56,14 @@ type SkillCatalogItem = SkillSummary & {
 
 type PeerSkillOffer = SkillSummary & {
   pitch: string;
+};
+
+type MemorySectionId = "petPersona" | "ownerPreference" | "longMemory";
+
+const memorySectionConfig: Record<MemorySectionId, { id: string; title: string }> = {
+  petPersona: { id: "mem_pet_persona", title: "宠物人格" },
+  ownerPreference: { id: "mem_owner_preference", title: "主人偏好" },
+  longMemory: { id: "mem_long_term", title: "长期记忆" },
 };
 
 const providerOptions: Array<{ id: AiProviderId; label: string; defaultModel: string; defaultBaseUrl?: string }> = [
@@ -424,11 +432,25 @@ export function RuntimeSidePanel({
   const [ttsModel, setTtsModel] = useState("mimo-v2.5-tts");
   const [voice, setVoice] = useState("mimo_default");
   const [voiceNotice, setVoiceNotice] = useState("");
+  const [memoryNotice, setMemoryNotice] = useState("");
+  const [savingMemorySection, setSavingMemorySection] = useState<MemorySectionId | null>(null);
 
   const memoryText = useMemo(() => memories.map((memory) => memory.content).join("\n"), [memories]);
-  const [petPersonaDraft, setPetPersonaDraft] = useState(defaultPetPersona(memoryText));
-  const [ownerPreferenceDraft, setOwnerPreferenceDraft] = useState(defaultOwnerPreference(memoryText));
-  const [memoryDraft, setMemoryDraft] = useState(extractSection(memoryText, "长期记忆") || memoryText);
+  const savedPetPersona = useMemo(
+    () => memorySectionContent(memories, memorySectionConfig.petPersona.id, memorySectionConfig.petPersona.title) || defaultPetPersona(memoryText),
+    [memories, memoryText],
+  );
+  const savedOwnerPreference = useMemo(
+    () => memorySectionContent(memories, memorySectionConfig.ownerPreference.id, memorySectionConfig.ownerPreference.title) || defaultOwnerPreference(memoryText),
+    [memories, memoryText],
+  );
+  const savedLongMemory = useMemo(
+    () => memorySectionContent(memories, memorySectionConfig.longMemory.id, memorySectionConfig.longMemory.title) || extractSection(memoryText, "长期记忆") || memoryText,
+    [memories, memoryText],
+  );
+  const [petPersonaDraft, setPetPersonaDraft] = useState(savedPetPersona);
+  const [ownerPreferenceDraft, setOwnerPreferenceDraft] = useState(savedOwnerPreference);
+  const [memoryDraft, setMemoryDraft] = useState(savedLongMemory);
 
   const friendCards = useMemo(() => {
     const realCards: FriendCard[] = friends.map((friend, index) => ({
@@ -459,10 +481,10 @@ export function RuntimeSidePanel({
   const localPetName = petProfile?.name?.trim() || "我的宠物";
 
   useEffect(() => {
-    setPetPersonaDraft(defaultPetPersona(memoryText));
-    setOwnerPreferenceDraft(defaultOwnerPreference(memoryText));
-    setMemoryDraft(extractSection(memoryText, "长期记忆") || memoryText);
-  }, [memoryText]);
+    setPetPersonaDraft(savedPetPersona);
+    setOwnerPreferenceDraft(savedOwnerPreference);
+    setMemoryDraft(savedLongMemory);
+  }, [savedLongMemory, savedOwnerPreference, savedPetPersona]);
 
   useEffect(() => {
     if (!activeExchangeFriendId) return;
@@ -532,12 +554,22 @@ export function RuntimeSidePanel({
     }
   }
 
-  async function saveMemory() {
-    await onSaveMemory(
-      [`# 宠物人格`, petPersonaDraft.trim(), "", "# 主人偏好", ownerPreferenceDraft.trim(), "", "# 长期记忆", memoryDraft.trim()]
-        .filter((line) => line !== undefined)
-        .join("\n"),
-    );
+  async function saveMemorySection(section: MemorySectionId) {
+    const config = memorySectionConfig[section];
+    const content =
+      section === "petPersona" ? petPersonaDraft.trim() : section === "ownerPreference" ? ownerPreferenceDraft.trim() : memoryDraft.trim();
+    if (!content) return;
+
+    setSavingMemorySection(section);
+    setMemoryNotice("");
+    try {
+      await onSaveMemory(`# ${config.title}\n${content}`, config.id);
+      setMemoryNotice(`${config.title}已保存`);
+    } catch (error) {
+      setMemoryNotice(error instanceof Error ? error.message : `${config.title}保存失败`);
+    } finally {
+      setSavingMemorySection(null);
+    }
   }
 
   if (view === "friends") {
@@ -763,35 +795,52 @@ export function RuntimeSidePanel({
           ) : null}
 
           <div className="memoryEditorGrid">
-            <label className="memoryEditor">
-              <span>
-                <Sparkles size={14} />
-                宠物人格
-              </span>
-              <textarea value={petPersonaDraft} onChange={(event) => setPetPersonaDraft(event.target.value)} />
-            </label>
-            <label className="memoryEditor">
-              <span>
-                <Heart size={14} />
-                主人偏好
-              </span>
-              <textarea value={ownerPreferenceDraft} onChange={(event) => setOwnerPreferenceDraft(event.target.value)} />
-            </label>
-            <label className="memoryEditor longMemoryEditor">
-              <span>
-                <Shield size={14} />
-                长期记忆
-              </span>
+            <article className="memoryEditor">
+              <div className="memoryEditorHeader">
+                <span>
+                  <Sparkles size={14} />
+                  宠物人格
+                </span>
+                <button type="button" onClick={() => void saveMemorySection("petPersona")} disabled={savingMemorySection === "petPersona"}>
+                  <Save size={14} />
+                  保存
+                </button>
+              </div>
+              <textarea aria-label="宠物人格" value={petPersonaDraft} onChange={(event) => setPetPersonaDraft(event.target.value)} />
+            </article>
+            <article className="memoryEditor">
+              <div className="memoryEditorHeader">
+                <span>
+                  <Heart size={14} />
+                  主人偏好
+                </span>
+                <button type="button" onClick={() => void saveMemorySection("ownerPreference")} disabled={savingMemorySection === "ownerPreference"}>
+                  <Save size={14} />
+                  保存
+                </button>
+              </div>
+              <textarea aria-label="主人偏好" value={ownerPreferenceDraft} onChange={(event) => setOwnerPreferenceDraft(event.target.value)} />
+            </article>
+            <article className="memoryEditor longMemoryEditor">
+              <div className="memoryEditorHeader">
+                <span>
+                  <Shield size={14} />
+                  长期记忆
+                </span>
+                <button type="button" onClick={() => void saveMemorySection("longMemory")} disabled={savingMemorySection === "longMemory"}>
+                  <Save size={14} />
+                  保存
+                </button>
+              </div>
               <textarea
+                aria-label="长期记忆"
                 value={memoryDraft}
                 placeholder="记录稳定偏好、工作习惯、称呼、常用工具和需要长期遵守的设定。"
                 onChange={(event) => setMemoryDraft(event.target.value)}
               />
-            </label>
+            </article>
           </div>
-          <button className="gradientButton roseButton" type="button" onClick={() => void saveMemory()}>
-            保存记忆
-          </button>
+          {memoryNotice ? <p className="runtimeNotice memoryNotice">{memoryNotice}</p> : null}
         </section>
       </section>
     );
@@ -855,10 +904,9 @@ export function RuntimeSidePanel({
       <aside className="configSidebar">
         <div className="panelTitle">
           <span className="titleIcon blue">
-            <Cpu size={24} />
+            <Settings2 size={24} />
           </span>
           <div>
-            <p className="eyebrow">Runtime</p>
             <h2>配置状态</h2>
           </div>
         </div>
@@ -1046,6 +1094,12 @@ function hashText(value: string) {
 function extractSection(content: string, title: string) {
   const pattern = new RegExp(`#\\s*${title}\\s*\\n([\\s\\S]*?)(?=\\n#\\s|$)`);
   return content.match(pattern)?.[1]?.trim() ?? "";
+}
+
+function memorySectionContent(memories: Memory[], id: string, title: string) {
+  const memory = memories.find((item) => item.id === id);
+  if (!memory) return "";
+  return extractSection(memory.content, title) || memory.content.trim();
 }
 
 function defaultPetPersona(content: string) {

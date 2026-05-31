@@ -46,7 +46,7 @@ Multi-session chat with Markdown rendering, streaming responses, and generated i
 <td>
 
 ### 🎤 Voice Conversations
-Voice input transcription and TTS playback. Enable "voice loop" mode for fully hands-free, voice-only interaction. Powered by Xiaomi MiMo with OpenAI fallback.
+Voice input transcription and TTS playback. Enable "voice loop" mode for fully hands-free, voice-only interaction. Works with supported voice APIs, including Xiaomi MiMo, OpenAI, and OpenAI-compatible voice endpoints.
 
 </td>
 <td>
@@ -232,14 +232,24 @@ OPENAI_COMPATIBLE_BASE_URL=https://your-endpoint/v1
 
 ### Voice Service
 
-Xiaomi MiMo by default, with OpenAI fallback:
+The recommended path is configuring voice APIs in-app via **Settings → Voice Model**. Environment variables are also supported; fill in the endpoint, model, and voice values from your provider:
 
 ```bash
+# Xiaomi MiMo / compatible voice endpoint
 XIAOMI_API_KEY=...
-XIAOMI_BASE_URL=https://api.xiaomimimo.com/v1
-XIAOMI_AUDIO_MODEL=mimo-v2.5
-XIAOMI_TTS_MODEL=mimo-v2.5-tts
-XIAOMI_TTS_VOICE=mimo_default
+XIAOMI_BASE_URL=https://your-voice-endpoint/v1
+XIAOMI_AUDIO_MODEL=...
+XIAOMI_TTS_MODEL=...
+XIAOMI_TTS_VOICE=...
+
+# OpenAI or OpenAI-compatible STT/TTS endpoint (optional)
+PET_AI_TRANSCRIPTION_API_KEY=...
+PET_AI_TRANSCRIPTION_BASE_URL=https://your-stt-endpoint/v1
+PET_AI_TRANSCRIPTION_MODEL=...
+PET_AI_SPEECH_API_KEY=...
+PET_AI_SPEECH_BASE_URL=https://your-tts-endpoint/v1
+PET_AI_SPEECH_MODEL=...
+PET_AI_SPEECH_VOICE=...
 ```
 
 ---

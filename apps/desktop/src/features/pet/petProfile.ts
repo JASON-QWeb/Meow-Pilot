@@ -109,7 +109,7 @@ export const paletteOptions = [
 
 export const defaultRigSettings: PetRigSettings = {
   removeBackground: true,
-  backgroundThreshold: 46,
+  backgroundThreshold: 30,
   frameScale: 100,
   frameOffsetX: 0,
   frameOffsetY: 0,
@@ -117,6 +117,6 @@ export const defaultRigSettings: PetRigSettings = {
   feetSplit: 76,
   headOffsetX: 0,
   headOffsetY: 0,
-  artStyle: "sticker",
+  artStyle: "natural",
   motionStyle: "bounce",
 };

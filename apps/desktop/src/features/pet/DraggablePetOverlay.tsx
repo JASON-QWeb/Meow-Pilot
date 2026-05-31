@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent } from "react";
 import { LogicalSize, PhysicalPosition } from "@tauri-apps/api/dpi";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Gauge, MessageCircle, Music, Send, Volume2, X } from "lucide-react";
+import { Gauge, MessageCircle, Music, Send, Video, Volume2, X } from "lucide-react";
 import type { ChatMessage, PetActivity, PetEmotion, TokenUsageSummary } from "@pet/protocol";
 import { PetAvatar } from "./PetAvatar";
 import type { PetPosition, PetProfile, PetRigAsset } from "./petProfile";
@@ -34,7 +34,7 @@ type DragState = {
   moved: boolean;
 };
 
-type OverlayMode = "menu" | "usage" | "chat" | "music" | null;
+type OverlayMode = "menu" | "usage" | "chat" | "music" | "video" | null;
 
 const activityCopy: Record<PetActivity, string> = {
   coding: "编码中",
@@ -64,10 +64,12 @@ export function DraggablePetOverlay({
   const frameRef = useRef<number | null>(null);
   const pendingWindowPositionRef = useRef<PhysicalPosition | null>(null);
   const musicInputRef = useRef<HTMLInputElement | null>(null);
+  const videoInputRef = useRef<HTMLInputElement | null>(null);
   const [dragging, setDragging] = useState(false);
   const [overlayMode, setOverlayMode] = useState<OverlayMode>(null);
   const [quickChatDraft, setQuickChatDraft] = useState("");
   const [localTrack, setLocalTrack] = useState<{ url: string; name: string; mimeType: string } | null>(null);
+  const [localVideo, setLocalVideo] = useState<{ url: string; name: string; mimeType: string } | null>(null);
   const overlayOpen = overlayMode !== null;
   const tokenRows = buildTokenProgressRows(tokenUsage);
   const recentMessages = messages.filter((message) => message.role !== "system").slice(-4);
@@ -98,6 +100,13 @@ export function DraggablePetOverlay({
       if (localTrack?.url) URL.revokeObjectURL(localTrack.url);
     },
     [localTrack?.url],
+  );
+
+  useEffect(
+    () => () => {
+      if (localVideo?.url) URL.revokeObjectURL(localVideo.url);
+    },
+    [localVideo?.url],
   );
 
   function clamp(nextX: number, nextY: number): PetPosition {
@@ -221,6 +230,18 @@ export function DraggablePetOverlay({
     });
   }
 
+  function chooseLocalVideo(file?: File) {
+    if (!file) return;
+    setLocalVideo((current) => {
+      if (current?.url) URL.revokeObjectURL(current.url);
+      return {
+        url: URL.createObjectURL(file),
+        name: file.name,
+        mimeType: file.type,
+      };
+    });
+  }
+
   function closeOverlay(event?: ReactMouseEvent<HTMLElement>) {
     if (event) stopOverlayControl(event);
     setOverlayMode(null);
@@ -230,11 +251,7 @@ export function DraggablePetOverlay({
     if (overlayMode === "menu") {
       return (
         <aside className="petOverlayPanel petOverlayMenu" aria-label="宠物快捷菜单" onMouseDown={stopOverlayControl} onContextMenu={stopOverlayControl}>
-          <header>
-            <div>
-              <strong>快捷菜单</strong>
-              <p>选择一个小窗</p>
-            </div>
+          <header className="petOverlayMenuHeader">
             <button type="button" aria-label="关闭快捷菜单" onClick={closeOverlay}>
               <X size={15} />
             </button>
@@ -242,18 +259,19 @@ export function DraggablePetOverlay({
           <div className="petContextActions">
             <button type="button" onClick={() => setOverlayMode("usage")}>
               <Gauge size={17} />
-              <span>用量</span>
-              <small>用量看板</small>
+              <span>模型用量</span>
             </button>
             <button type="button" onClick={() => setOverlayMode("chat")}>
               <MessageCircle size={17} />
               <span>快速对话</span>
-              <small>小窗直接聊</small>
             </button>
             <button type="button" onClick={() => setOverlayMode("music")}>
               <Music size={17} />
               <span>听歌</span>
-              <small>选择本地歌曲</small>
+            </button>
+            <button type="button" onClick={() => setOverlayMode("video")}>
+              <Video size={17} />
+              <span>视频</span>
             </button>
           </div>
         </aside>
@@ -262,13 +280,13 @@ export function DraggablePetOverlay({
 
     if (overlayMode === "usage") {
       return (
-        <aside className="petOverlayPanel petUsageBoard" aria-label="用量看板" onMouseDown={stopOverlayControl} onContextMenu={stopOverlayControl}>
+        <aside className="petOverlayPanel petUsageBoard" aria-label="模型用量" onMouseDown={stopOverlayControl} onContextMenu={stopOverlayControl}>
           <header>
             <div>
-              <strong>用量看板</strong>
+              <strong>模型用量</strong>
               <p>{tokenRows.length} 条额度</p>
             </div>
-            <button type="button" aria-label="关闭用量看板" onClick={closeOverlay}>
+            <button type="button" aria-label="关闭模型用量" onClick={closeOverlay}>
               <X size={15} />
             </button>
           </header>
@@ -357,6 +375,49 @@ export function DraggablePetOverlay({
             accept="audio/*"
             onChange={(event) => {
               chooseLocalTrack(event.currentTarget.files?.[0]);
+              event.currentTarget.value = "";
+            }}
+          />
+        </aside>
+      );
+    }
+
+    if (overlayMode === "video") {
+      return (
+        <aside className="petOverlayPanel petVideoPanel" aria-label="视频播放器" onMouseDown={stopOverlayControl} onContextMenu={stopOverlayControl}>
+          <header>
+            <div>
+              <strong>视频播放器</strong>
+              <p>{localVideo ? localVideo.name : "选择本地视频"}</p>
+            </div>
+            <button type="button" aria-label="关闭视频播放器" onClick={closeOverlay}>
+              <X size={15} />
+            </button>
+          </header>
+          {localVideo ? (
+            <div className="petVideoPlayer">
+              <video controls src={localVideo.url}>
+                {localVideo.mimeType ? <source src={localVideo.url} type={localVideo.mimeType} /> : null}
+              </video>
+            </div>
+          ) : (
+            <button className="petVideoPicker" type="button" onClick={() => videoInputRef.current?.click()}>
+              <Video size={18} />
+              选择视频播放
+            </button>
+          )}
+          {localVideo ? (
+            <button className="petVideoReplace" type="button" onClick={() => videoInputRef.current?.click()}>
+              换一个
+            </button>
+          ) : null}
+          <input
+            className="visuallyHidden"
+            ref={videoInputRef}
+            type="file"
+            accept="video/*"
+            onChange={(event) => {
+              chooseLocalVideo(event.currentTarget.files?.[0]);
               event.currentTarget.value = "";
             }}
           />

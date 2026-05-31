@@ -44,6 +44,11 @@ export type PetImageSource = {
 };
 
 export async function readPetImage(file: File): Promise<PetImageSource> {
+  const sourceDataUrl = await readPetImageFileDataUrl(file);
+  return readPetImageDataUrl(file.name, sourceDataUrl);
+}
+
+export async function readPetImageFileDataUrl(file: File): Promise<string> {
   if (!file.type.startsWith("image/")) {
     throw new Error("请选择 JPG、PNG 或 WebP 图片。");
   }
@@ -51,8 +56,11 @@ export async function readPetImage(file: File): Promise<PetImageSource> {
     throw new Error("图片大小不能超过 15 MB。");
   }
 
-  const sourceDataUrl = await blobToDataUrl(file);
-  const image = await loadImage(sourceDataUrl);
+  return blobToDataUrl(file);
+}
+
+export async function readPetImageDataUrl(name: string, dataUrl: string): Promise<PetImageSource> {
+  const image = await loadImage(dataUrl);
   const sourceHasTransparency = hasImageTransparency(image);
   const canvas = createCanvas();
   const context = canvas.getContext("2d");
@@ -65,7 +73,7 @@ export async function readPetImage(file: File): Promise<PetImageSource> {
   context.drawImage(image, (CANVAS_SIZE - width) / 2, (CANVAS_SIZE - height) / 2, width, height);
 
   return {
-    name: file.name,
+    name,
     dataUrl: canvas.toDataURL("image/png"),
     hasTransparency: sourceHasTransparency,
   };
@@ -81,12 +89,19 @@ export async function createPetRig(source: PetImageSource, settings: PetRigSetti
   foregroundContext.drawImage(image, -CANVAS_SIZE / 2, -CANVAS_SIZE / 2, CANVAS_SIZE, CANVAS_SIZE);
   foregroundContext.setTransform(1, 0, 0, 1, 0, 0);
 
+  const originalForeground = cloneCanvas(foreground);
+  const originalStats = alphaStats(originalForeground);
   if (settings.removeBackground && !source.hasTransparency) {
     removeFlatBackground(foregroundContext, settings.backgroundThreshold);
+    if (foregroundLooksBroken(alphaStats(foreground), originalStats)) {
+      foregroundContext.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+      foregroundContext.drawImage(originalForeground, 0, 0);
+    }
   }
 
   const now = new Date().toISOString();
-  const styled = applyStyle(foreground, settings.artStyle);
+  const normalized = normalizeForeground(foreground);
+  const styled = applyStyle(normalized, settings.artStyle);
   const layerCanvases = makeLayerCanvases(styled, settings);
   const layers = layerCanvases.map(({ canvas: _canvas, ...layer }) => layer);
   const actionSpritesheet = createActionSpritesheet(layerCanvases);
@@ -118,6 +133,38 @@ export function rigSettings(asset?: PetRigAsset | null) {
 }
 
 function makeLayerCanvases(canvas: HTMLCanvasElement, settings: PetRigSettings): PetRigLayerCanvas[] {
+  if (!settings.removeBackground) {
+    const blankFeet = createCanvas();
+    const blankHead = createCanvas();
+    const bodyCanvas = cloneCanvas(canvas);
+    return [
+      {
+        id: "feet",
+        label: "底部 / 占位层",
+        canvas: blankFeet,
+        imageDataUrl: blankFeet.toDataURL("image/png"),
+        offsetX: 0,
+        offsetY: 0,
+      },
+      {
+        id: "body",
+        label: "完整图片 / 主层",
+        canvas: bodyCanvas,
+        imageDataUrl: bodyCanvas.toDataURL("image/png"),
+        offsetX: 0,
+        offsetY: 0,
+      },
+      {
+        id: "head",
+        label: "头部 / 占位层",
+        canvas: blankHead,
+        imageDataUrl: blankHead.toDataURL("image/png"),
+        offsetX: 0,
+        offsetY: 0,
+      },
+    ];
+  }
+
   const headEdge = Math.round((settings.headSplit / 100) * CANVAS_SIZE);
   const feetEdge = Math.round((settings.feetSplit / 100) * CANVAS_SIZE);
   const feetCanvas = maskRows(canvas, feetEdge - 7, CANVAS_SIZE);
@@ -365,20 +412,123 @@ function applyStyle(foreground: HTMLCanvasElement, style: PetRigSettings["artSty
   return output;
 }
 
+function normalizeForeground(source: HTMLCanvasElement) {
+  const bounds = alphaStats(source);
+  if (!bounds) return source;
+
+  const width = bounds.maxX - bounds.minX + 1;
+  const height = bounds.maxY - bounds.minY + 1;
+  const scale = Math.min(CONTENT_SIZE / width, CONTENT_SIZE / height);
+  if (!Number.isFinite(scale) || scale <= 0) return source;
+
+  const output = createCanvas();
+  const context = output.getContext("2d");
+  if (!context) return source;
+
+  const targetWidth = width * scale;
+  const targetHeight = height * scale;
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+  context.drawImage(source, bounds.minX, bounds.minY, width, height, (CANVAS_SIZE - targetWidth) / 2, (CANVAS_SIZE - targetHeight) / 2, targetWidth, targetHeight);
+  return output;
+}
+
+function alphaStats(canvas: HTMLCanvasElement) {
+  const context = canvas.getContext("2d");
+  if (!context) return null;
+  return opaqueBounds(context.getImageData(0, 0, CANVAS_SIZE, CANVAS_SIZE).data, 12);
+}
+
+function foregroundLooksBroken(current: ReturnType<typeof alphaStats>, original: ReturnType<typeof alphaStats>) {
+  if (!original) return false;
+  if (!current) return true;
+
+  const width = current.maxX - current.minX + 1;
+  const height = current.maxY - current.minY + 1;
+  return current.pixelCount < 1800 || width < 36 || height < 36 || current.pixelCount < original.pixelCount * 0.08;
+}
+
 function removeFlatBackground(context: CanvasRenderingContext2D, threshold: number) {
   const image = context.getImageData(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+  const bounds = opaqueBounds(image.data);
+  if (!bounds) return;
   const samples = collectBorderColors(image.data);
-  const softEdge = 34;
+  const backgroundMask = connectedBackgroundMask(image.data, bounds, samples, threshold);
+  const hardLimit = threshold + 18;
+  const softEdge = 30;
 
-  for (let offset = 0; offset < image.data.length; offset += 4) {
-    const alpha = image.data[offset + 3] ?? 0;
-    if (alpha === 0) continue;
+  for (let y = bounds.minY; y <= bounds.maxY; y += 1) {
+    for (let x = bounds.minX; x <= bounds.maxX; x += 1) {
+      const pixelIndex = y * CANVAS_SIZE + x;
+      const offset = pixelIndex * 4;
+      const alpha = image.data[offset + 3] ?? 0;
+      if (alpha === 0) continue;
 
-    const distance = nearestColorDistance(image.data, offset, samples);
-    const matte = Math.min(1, Math.max(0, (distance - threshold) / softEdge));
-    image.data[offset + 3] = Math.round(alpha * matte);
+      if (backgroundMask[pixelIndex]) {
+        image.data[offset + 3] = 0;
+        continue;
+      }
+
+      if (!touchesBackground(backgroundMask, x, y)) continue;
+      const distance = nearestColorDistance(image.data, offset, samples);
+      if (distance >= hardLimit + softEdge) continue;
+      const matte = Math.min(1, Math.max(0, (distance - hardLimit) / softEdge));
+      image.data[offset + 3] = Math.round(alpha * matte);
+    }
   }
   context.putImageData(image, 0, 0);
+}
+
+function connectedBackgroundMask(data: Uint8ClampedArray, bounds: NonNullable<ReturnType<typeof opaqueBounds>>, colors: Array<[number, number, number]>, threshold: number) {
+  const mask = new Uint8Array(CANVAS_SIZE * CANVAS_SIZE);
+  const queue = new Int32Array(CANVAS_SIZE * CANVAS_SIZE);
+  const limit = threshold + 18;
+  let head = 0;
+  let tail = 0;
+
+  const tryPush = (x: number, y: number) => {
+    if (x < bounds.minX || x > bounds.maxX || y < bounds.minY || y > bounds.maxY) return;
+    const pixelIndex = y * CANVAS_SIZE + x;
+    if (mask[pixelIndex]) return;
+    const offset = pixelIndex * 4;
+    if ((data[offset + 3] ?? 0) < 8) return;
+    if (nearestColorDistance(data, offset, colors) > limit) return;
+    mask[pixelIndex] = 1;
+    queue[tail] = pixelIndex;
+    tail += 1;
+  };
+
+  for (let x = bounds.minX; x <= bounds.maxX; x += 1) {
+    tryPush(x, bounds.minY);
+    tryPush(x, bounds.maxY);
+  }
+  for (let y = bounds.minY; y <= bounds.maxY; y += 1) {
+    tryPush(bounds.minX, y);
+    tryPush(bounds.maxX, y);
+  }
+
+  while (head < tail) {
+    const pixelIndex = queue[head] ?? 0;
+    head += 1;
+    const x = pixelIndex % CANVAS_SIZE;
+    const y = Math.floor(pixelIndex / CANVAS_SIZE);
+    tryPush(x + 1, y);
+    tryPush(x - 1, y);
+    tryPush(x, y + 1);
+    tryPush(x, y - 1);
+  }
+
+  return mask;
+}
+
+function touchesBackground(mask: Uint8Array, x: number, y: number) {
+  const pixelIndex = y * CANVAS_SIZE + x;
+  return Boolean(
+    (x > 0 && mask[pixelIndex - 1]) ||
+      (x < CANVAS_SIZE - 1 && mask[pixelIndex + 1]) ||
+      (y > 0 && mask[pixelIndex - CANVAS_SIZE]) ||
+      (y < CANVAS_SIZE - 1 && mask[pixelIndex + CANVAS_SIZE]),
+  );
 }
 
 function collectBorderColors(data: Uint8ClampedArray) {
@@ -396,23 +546,25 @@ function collectBorderColors(data: Uint8ClampedArray) {
   return colors;
 }
 
-function opaqueBounds(data: Uint8ClampedArray) {
+function opaqueBounds(data: Uint8ClampedArray, alphaThreshold = 0) {
   let minX = CANVAS_SIZE;
   let minY = CANVAS_SIZE;
   let maxX = -1;
   let maxY = -1;
+  let pixelCount = 0;
   for (let y = 0; y < CANVAS_SIZE; y += 1) {
     for (let x = 0; x < CANVAS_SIZE; x += 1) {
       const alpha = data[(y * CANVAS_SIZE + x) * 4 + 3] ?? 0;
-      if (alpha === 0) continue;
+      if (alpha <= alphaThreshold) continue;
       minX = Math.min(minX, x);
       minY = Math.min(minY, y);
       maxX = Math.max(maxX, x);
       maxY = Math.max(maxY, y);
+      pixelCount += 1;
     }
   }
   if (maxX < 0) return null;
-  return { minX, minY, maxX, maxY };
+  return { minX, minY, maxX, maxY, pixelCount };
 }
 
 function readColor(data: Uint8ClampedArray, x: number, y: number): [number, number, number] {
@@ -435,6 +587,13 @@ function createCanvas() {
   canvas.width = CANVAS_SIZE;
   canvas.height = CANVAS_SIZE;
   return canvas;
+}
+
+function cloneCanvas(source: HTMLCanvasElement) {
+  const clone = createCanvas();
+  const context = clone.getContext("2d");
+  if (context) context.drawImage(source, 0, 0);
+  return clone;
 }
 
 function hasImageTransparency(image: HTMLImageElement) {

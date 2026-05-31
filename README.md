@@ -5,7 +5,7 @@
 <h1 align="center">🐾 Purr Pilot — 你的 AI 桌面宠物伙伴</h1>
 
 <p align="center">
-  <strong>一只住在你桌面上的 AI 宠物，能聊天陪伴、能思考、能帮你工作。</strong>
+  <strong>住在你桌面上的 AI 宠物，能聊天陪伴、能思考、能帮你工作。</strong>
 </p>
 
 <p align="center">
@@ -46,7 +46,7 @@
 <td>
 
 ### 🎤 语音对话
-支持语音输入转写和 TTS 语音播报，开启「语音循环」后可全程语音免打字交互。默认使用小米 MiMo，也支持 OpenAI 回退。
+支持语音输入转写和 TTS 语音播报，开启「语音循环」后可全程语音免打字交互。可接入已支持的语音 API，包括小米 MiMo、OpenAI 以及兼容 OpenAI 语音协议的端点。
 
 </td>
 <td>
@@ -232,14 +232,24 @@ OPENAI_COMPATIBLE_BASE_URL=https://your-endpoint/v1
 
 ### 语音服务
 
-默认使用小米 MiMo，支持 OpenAI 回退：
+推荐在 App 内「配置 → 语音模型」页面保存语音 API。也可以用环境变量接入已支持的语音服务，按你的服务商实际端点、模型和 voice 填写即可：
 
 ```bash
+# 小米 MiMo / 兼容语音端点
 XIAOMI_API_KEY=...
-XIAOMI_BASE_URL=https://api.xiaomimimo.com/v1
-XIAOMI_AUDIO_MODEL=mimo-v2.5
-XIAOMI_TTS_MODEL=mimo-v2.5-tts
-XIAOMI_TTS_VOICE=mimo_default
+XIAOMI_BASE_URL=https://your-voice-endpoint/v1
+XIAOMI_AUDIO_MODEL=...
+XIAOMI_TTS_MODEL=...
+XIAOMI_TTS_VOICE=...
+
+# OpenAI 或兼容 OpenAI STT/TTS 协议的语音端点（可选）
+PET_AI_TRANSCRIPTION_API_KEY=...
+PET_AI_TRANSCRIPTION_BASE_URL=https://your-stt-endpoint/v1
+PET_AI_TRANSCRIPTION_MODEL=...
+PET_AI_SPEECH_API_KEY=...
+PET_AI_SPEECH_BASE_URL=https://your-tts-endpoint/v1
+PET_AI_SPEECH_MODEL=...
+PET_AI_SPEECH_VOICE=...
 ```
 
 ---

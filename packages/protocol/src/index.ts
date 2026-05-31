@@ -57,6 +57,7 @@ export type LocalRpcMethod =
   | "skill.list"
   | "skill.run"
   | "usage.list"
+  | "pet.image.cutout"
   | "provider.configure"
   | "provider.list";
 
@@ -489,6 +490,20 @@ export type ProviderSummary = {
   capabilities: string[];
   model?: string;
   source?: "env" | "local-config" | "api-md" | "system";
+};
+
+export type PetImageCutoutParams = {
+  imageDataUrl: string;
+  fileName?: string;
+  mimeType?: string;
+};
+
+export type PetImageCutoutPayload = {
+  imageDataUrl: string;
+  mimeType: "image/png";
+  model: string;
+  provider: AiProviderId;
+  source: "responses-image-generation";
 };
 
 export type TokenUsageSummary = {
