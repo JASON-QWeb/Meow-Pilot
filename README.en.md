@@ -1,22 +1,20 @@
 <p align="center">
-  <img src="docs/demos/hero-pet-run.gif" alt="Purr Pilot desktop pet running preview" width="100%" />
+  <img src="docs/demos/hero-pet-run.gif" alt="Meow Pilot desktop pet running preview" width="100%" />
 </p>
 
-<h1 align="center">🐾 Purr Pilot</h1>
+<h1 align="center">🐾 Meow Pilot</h1>
 
 <p align="center">
-  <strong>A small AI companion for your Mac desktop: present, personal, and useful.</strong>
+  <strong>Put an AI pet that can work, remember, and keep you company on your Mac desktop</strong>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/platform-macOS-blue?style=flat-square&logo=apple" />
+  <img src="https://img.shields.io/badge/Rust-000000?style=flat-square&logo=rust" />
+  <img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white" />
+  <img src="https://img.shields.io/badge/Node.js-339933?style=flat-square&logo=node.js&logoColor=white" />
+  <img src="https://img.shields.io/badge/pnpm-F69220?style=flat-square&logo=pnpm&logoColor=white" />
   <img src="https://img.shields.io/badge/local--first-private-green?style=flat-square" />
-  <img src="https://img.shields.io/badge/desktop-pet-lime?style=flat-square" />
-  <img src="https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square" />
-</p>
-
-<p align="center">
-  <a href="docs/demos/purr-pilot-demo.mp4">Watch the full demo</a> · <a href="#-getting-started">Run it locally</a>
 </p>
 
 <p align="center">
@@ -25,50 +23,7 @@
 
 ---
 
-**Purr Pilot** is an AI pet that lives at the edge of your desktop. Open the full workspace when you need focus, or use the right-click quick panels for chat, music, video, usage, and status. It is designed to feel like a companion you keep around all day, with local-first data by default.
-
----
-
-## ✨ Why It Feels Useful
-
-<table>
-<tr>
-<td width="50%">
-
-### A Companion On Your Desktop
-The pet stays where you work. Click to open the workspace, or right-click for chat, usage, music, and video.
-
-</td>
-<td width="50%">
-
-### Conversations Become Tools
-Ask naturally and get media players, weather cards, reminders, and compact status panels inside the conversation.
-
-</td>
-</tr>
-<tr>
-<td>
-
-### It Learns Your Rhythm
-Sessions, preferences, and long-term memories stay local, so the pet can become more tuned to your habits over time.
-
-</td>
-<td>
-
-### It Can Grow With Friends
-Change the character, create your own pet image, and exchange Skills with friends to make your pet more capable.
-
-</td>
-</tr>
-</table>
-
----
-
 ## 🎬 Product Demos
-
-<p align="center">
-  <a href="docs/demos/purr-pilot-demo.mp4">Watch the full demo video</a>
-</p>
 
 <table>
 <tr>
@@ -76,16 +31,14 @@ Change the character, create your own pet image, and exchange Skills with friend
 
 <img src="docs/demos/01-basic-dashboard.gif" alt="Basic dashboard, usage, memory, Skill, and settings switching" width="100%" />
 
-**Your Workspace At A Glance**
-<sub>Home, live usage, memory, Skill, and settings switching</sub>
+**Home, model usage, memory, Skill, scheduled tasks, and more**
 
 </td>
 <td align="center" width="50%">
 
-<img src="docs/demos/02-session-media-weather.gif" alt="Multi-session UI with local music, local video, and weather cards" width="100%" />
+<img src="docs/demos/02-session-media-weather.gif" alt="Multi-session, local music, local video, and weather cards" width="100%" />
 
-**Chat Turns Into Small Apps**
-<sub>Multi-session, user-selected local music, local video, and weather cards</sub>
+**Generative UI card interactions inside sessions**
 
 </td>
 </tr>
@@ -94,26 +47,23 @@ Change the character, create your own pet image, and exchange Skills with friend
 
 <img src="docs/demos/03-skill-exchange.gif" alt="Friend Skill exchange flow" width="100%" />
 
-**Exchange Skills With Real Friends**
-<sub>Select an added friend and receive shared usable Skills</sub>
+**Social: exchange Skills with real friends**
 
 </td>
 <td align="center">
 
-<img src="docs/demos/04-pet-customization.gif" alt="Image studio switching Petdex characters while the desktop pet changes" width="100%" />
+<img src="docs/demos/04-pet-customization.gif" alt="Image studio switching Petdex characters and opening the custom image studio" width="100%" />
 
-**Character Changes Sync Instantly**
-<sub>Petdex switching and custom image studio</sub>
+**Pet character selection and custom generation**
 
 </td>
 </tr>
 <tr>
 <td align="center" colspan="2">
 
-<img src="docs/demos/05-pet-quick-actions.gif" alt="Desktop pet right-click quick menu, chat, usage, music, and video" width="620" />
+<img src="docs/demos/05-pet-quick-actions.gif" alt="Desktop pet right-click quick menu, quick chat, usage, music, and video" width="620" />
 
-**Useful Without Opening The Window**
-<sub>Quick chat, live usage, music, video, and work states</sub>
+**Quick actions from the pet right-click menu**
 
 </td>
 </tr>
@@ -121,50 +71,44 @@ Change the character, create your own pet image, and exchange Skills with friend
 
 ---
 
-## 🖼️ What You Can Do
+## 🖼️ Covered Scenarios
 
-| Moment | Experience |
+| Scenario | Experience |
 |:--|:--|
-| 💬 **Ask Quickly** | Start from the desktop pet, then continue in the full multi-session workspace |
-| 🎵 **Use Local Media** | Let the pet play desktop music or video without breaking your flow |
-| 🌤️ **See Useful Cards** | Weather, plans, reminders, and summaries appear as compact cards |
-| 🧠 **Keep Memory Local** | Preferences, persona, and long-term context can build up on your machine |
-| 🧩 **Grow With Skills** | Exchange Skills with friends so the pet learns new workflows |
-| 🎨 **Make It Yours** | Choose a preset character or turn your own image into the pet |
+| **Quick chat** | Start from the desktop right-click menu, or open the multi-session workspace to continue chatting |
+| **Play media** | Ask the pet to play music or videos |
+| **Life cards** | Weather, plans, and reminders become small visual cards |
+| **Long-term memory** | Preferences, personas, and daily details can keep accumulating locally |
+| **Skill growth** | Exchange Skills with friends so the pet becomes more capable |
+| **Character switching** | Preset characters and custom images can both become desktop companions |
 
 ---
 
-## 🐾 Characters And Interactive Cards
+## 🚀 Quick Start
 
-Purr Pilot ships with 2 Petdex characters on `main`, and you can upload an image to create your own desktop pet. Conversations can render music, video, weather, forms, timelines, and other compact interactive cards from user input, local storage, or live API results.
-
----
-
-## 🚀 Getting Started
-
-### Prerequisites
+### Requirements
 
 - macOS (Tauri desktop shell)
 - Node.js ≥ 22
 - pnpm ≥ 11
-- Rust toolchain (for Tauri build)
+- Rust toolchain (Tauri build)
 
-### Development
+### Start Development Version
 
 ```bash
-# Install dependencies
+# Clone and install dependencies
 pnpm install
 
-# 🚀 Launch native desktop app (recommended)
+# 🚀 Start the native desktop app (recommended)
 pnpm --filter @pet/desktop tauri:dev
 
-# 💡 Web UI + Agent Runtime only (no native window)
+# 💡 Debug Web UI + Agent Runtime only
 pnpm dev
 ```
 
-After launch, a transparent always-on-top pet appears on your desktop — click it to open the work window and start exploring!
+After launch, a transparent always-on-top desktop pet will appear. Click it to open the work window and start exploring!
 
-### Production Build
+### Package Release
 
 ```bash
 # Build macOS .app
@@ -174,7 +118,7 @@ pnpm --filter @pet/desktop tauri:build
 pnpm --filter @pet/desktop tauri:build:dmg
 ```
 
-Output: `apps/desktop/src-tauri/target/release/bundle/macos/Pet Agent.app`
+Output path: `apps/desktop/src-tauri/target/release/bundle/macos/Pet Agent.app`
 
 ---
 
@@ -182,7 +126,7 @@ Output: `apps/desktop/src-tauri/target/release/bundle/macos/Pet Agent.app`
 
 ### Model API
 
-The recommended way is to configure in-app via **Settings → Model API**. Environment variables are also supported:
+We recommend setting this in the app under **Configuration → Model API**. Environment variables are also supported:
 
 ```bash
 PET_AI_PROVIDER=openai          # deepseek / openai / anthropic / google / xai / openrouter
@@ -208,7 +152,7 @@ OPENAI_COMPATIBLE_BASE_URL=https://your-endpoint/v1
 
 ### Voice Service
 
-The recommended path is configuring voice APIs in-app via **Settings → Voice Model**. Environment variables are also supported; fill in the endpoint, model, and voice values from your provider:
+We recommend saving voice APIs in the app under **Configuration → Voice Model**. You can also use environment variables to connect supported voice services. Fill in the endpoint, model, and voice according to your provider:
 
 ```bash
 # Xiaomi MiMo / compatible voice endpoint
@@ -218,7 +162,7 @@ XIAOMI_AUDIO_MODEL=...
 XIAOMI_TTS_MODEL=...
 XIAOMI_TTS_VOICE=...
 
-# OpenAI or OpenAI-compatible STT/TTS endpoint (optional)
+# OpenAI or OpenAI-compatible STT/TTS voice endpoint (optional)
 PET_AI_TRANSCRIPTION_API_KEY=...
 PET_AI_TRANSCRIPTION_BASE_URL=https://your-stt-endpoint/v1
 PET_AI_TRANSCRIPTION_MODEL=...
@@ -230,35 +174,29 @@ PET_AI_SPEECH_VOICE=...
 
 ---
 
-## 🏗️ Architecture
+## 🏗️ Project Architecture
 
 ```
 ├── apps/desktop/              → React + Vite + Tauri desktop app
 │   ├── src/features/          → Chat, pet, dashboard, A2UI components
 │   ├── src/services/          → WebSocket RPC client
 │   └── src-tauri/             → Rust native shell & window management
-├── packages/agent-runtime/    → Node.js WebSocket agent server
+├── packages/agent-runtime/    → Node.js WebSocket Agent service
 │   ├── providers/             → AI SDK & voice integrations
 │   └── storage.ts             → SQLite local persistence
 ├── packages/protocol/         → Shared frontend/backend type protocol
 └── skills/bundled/            → Built-in skill definitions
 ```
 
-**Dual-window design:**
-- `pet` window — 180×180, transparent frameless, always-on-top across all desktops
-- `work` window — 1580×960, standard workspace, opened by clicking the pet
-
 ---
 
-## 📦 Local Data
+## Local Data
 
-All data stored entirely on your machine — zero cloud dependency:
+All data is stored entirely locally, with zero cloud dependency:
 
 | File | Description |
 |:--|:--|
-| `.pet/pet-agentd.sqlite` | Sessions, messages, memories, skills, and all app data |
+| `.pet/pet-agentd.sqlite` | Sessions, messages, memories, skills, and all data |
 | `.pet/ai-provider.json` | Model API configuration |
-
-Development data lives in `.pet/` within the repo (gitignored). Packaged apps write to the system `Application Support` directory.
 
 ---

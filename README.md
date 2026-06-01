@@ -1,22 +1,20 @@
 <p align="center">
-  <img src="docs/demos/hero-pet-run.gif" alt="Purr Pilot 桌面宠物跑动预览" width="100%" />
+  <img src="docs/demos/hero-pet-run.gif" alt="Meow Pilot 桌面宠物跑动预览" width="100%" />
 </p>
 
-<h1 align="center">🐾 Purr Pilot</h1>
+<h1 align="center">🐾 Meow Pilot</h1>
 
 <p align="center">
-  <strong>把一个会工作、会记忆、会陪伴的小助手放进你的 Mac 桌面。</strong>
+  <strong>把会工作、会记忆、会陪伴的AI宠物放进你的 Mac 桌面</strong>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/platform-macOS-blue?style=flat-square&logo=apple" />
+  <img src="https://img.shields.io/badge/Rust-000000?style=flat-square&logo=rust" />
+  <img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white" />
+  <img src="https://img.shields.io/badge/Node.js-339933?style=flat-square&logo=node.js&logoColor=white" />
+  <img src="https://img.shields.io/badge/pnpm-F69220?style=flat-square&logo=pnpm&logoColor=white" />
   <img src="https://img.shields.io/badge/local--first-private-green?style=flat-square" />
-  <img src="https://img.shields.io/badge/desktop-pet-lime?style=flat-square" />
-  <img src="https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square" />
-</p>
-
-<p align="center">
-  <a href="docs/demos/purr-pilot-demo.mp4">观看完整演示</a> · <a href="#-快速开始">立即运行</a>
 </p>
 
 <p align="center">
@@ -25,50 +23,7 @@
 
 ---
 
-**Purr Pilot** 是一只常驻桌面边缘的 AI 宠物。它能在你需要时展开成工作台，也能只用右键快捷面板完成聊天、听歌、看视频、看用量和查看状态。数据优先保存在本地，适合每天开机就陪在旁边。
-
----
-
-## ✨ 为什么想每天打开
-
-<table>
-<tr>
-<td width="50%">
-
-### 桌面边上的 AI 伙伴
-小人常驻在桌面上，点击展开完整工作台，右键直接打开快捷对话、用量、音乐和视频。
-
-</td>
-<td width="50%">
-
-### 会话变成可操作界面
-一句话就能调出本地媒体、天气卡片、任务提醒和状态面板，不只是等一段文字回复。
-
-</td>
-</tr>
-<tr>
-<td>
-
-### 会记住你的偏好
-多会话、长期记忆和日常摘要都在本机沉淀，宠物会逐渐更懂你的工作节奏。
-
-</td>
-<td>
-
-### 能养成也能社交
-换造型、做自定义小人、和好友交换 Skill，让桌面宠物从工具变成自己的角色。
-
-</td>
-</tr>
-</table>
-
----
-
 ## 🎬 产品演示
-
-<p align="center">
-  <a href="docs/demos/purr-pilot-demo.mp4">查看完整演示视频</a>
-</p>
 
 <table>
 <tr>
@@ -76,16 +31,14 @@
 
 <img src="docs/demos/01-basic-dashboard.gif" alt="基础看板、用量、记忆、Skill 与配置切换" width="100%" />
 
-**工作台一眼掌握**
-<sub>主页、真实用量、记忆、Skill 和配置快速切换</sub>
+**主页、模型用量、记忆、skill、定时任务等**
 
 </td>
 <td align="center" width="50%">
 
 <img src="docs/demos/02-session-media-weather.gif" alt="多会话、本地音乐、本地视频与天气卡片" width="100%" />
 
-**会话里直接出现工具**
-<sub>多会话、用户选择的本地音乐、本地视频和天气卡片</sub>
+**会话里内生成式UI卡片交互**
 
 </td>
 </tr>
@@ -94,16 +47,14 @@
 
 <img src="docs/demos/03-skill-exchange.gif" alt="好友 Skill 交换流程" width="100%" />
 
-**和真实好友交换 Skill**
-<sub>选择已添加好友，接收对方共享的可用 Skill</sub>
+**社交：与真实好友交换 Skill**
 
 </td>
 <td align="center">
 
 <img src="docs/demos/04-pet-customization.gif" alt="形象工作室切换 Petdex 造型并打开自定义图片工作室" width="100%" />
 
-**换造型马上同步到桌面**
-<sub>Petdex 角色切换和自定义图片工作室</sub>
+**宠物造型选择与自定义生成**
 
 </td>
 </tr>
@@ -112,8 +63,7 @@
 
 <img src="docs/demos/05-pet-quick-actions.gif" alt="桌面宠物右键快捷菜单、快速对话、用量、音乐与视频" width="620" />
 
-**不用打开窗口也能操作**
-<sub>快速对话、真实用量、听歌、视频和工作状态</sub>
+**宠物右键菜单快捷操作**
 
 </td>
 </tr>
@@ -121,22 +71,16 @@
 
 ---
 
-## 🖼️ 你可以用它做什么
+## 🖼️ 覆盖场景
 
 | 场景 | 体验 |
 |:--|:--|
-| 💬 **随手聊天** | 从桌面右键开始问，也可以展开多会话工作台继续聊 |
-| 🎵 **本地媒体** | 让宠物播放桌面音乐或视频，不需要离开当前工作流 |
-| 🌤️ **生活卡片** | 天气、计划、提醒直接变成可看的小卡片 |
-| 🧠 **长期记忆** | 偏好、人设、日常事项可持续沉淀在本地 |
-| 🧩 **Skill 养成** | 从好友那里交换 Skill，让宠物越来越会帮忙 |
-| 🎨 **形象切换** | 预设角色和自定义图片都能变成桌面小人 |
-
----
-
-## 🐾 角色和互动卡片
-
-主线内置 2 款 Petdex 角色，也可以上传图片生成自己的桌面小人。聊天里不只返回文字，还会生成音乐、视频、天气、表单、时间线等互动卡片；所有数据都来自用户输入、本地数据库或真实接口返回。
+| **随手聊天** | 从桌面右键开始问，也可以展开多会话工作台继续聊 |
+| **播放媒体** | 让宠物播放音乐或视频 |
+| **生活卡片** | 天气、计划、提醒直接变成可看的小卡片 |
+| **长期记忆** | 偏好、人设、日常事项可持续沉淀在本地 |
+| **Skill 养成** | 从好友那里交换 Skill，让宠物越来越会帮忙 |
+| **形象切换** | 预设角色和自定义图片都能变成桌面小人 |
 
 ---
 
@@ -244,13 +188,9 @@ PET_AI_SPEECH_VOICE=...
 └── skills/bundled/            → 内置技能定义
 ```
 
-**双窗口设计：**
-- `pet` 窗口 — 180×180，透明无边框，全桌面置顶
-- `work` 窗口 — 1580×960，标准工作区，点击宠物唤出
-
 ---
 
-## 📦 本地数据
+## 本地数据
 
 所有数据完全本地存储，零云端依赖：
 
@@ -258,7 +198,5 @@ PET_AI_SPEECH_VOICE=...
 |:--|:--|
 | `.pet/pet-agentd.sqlite` | 会话、消息、记忆、技能等全部数据 |
 | `.pet/ai-provider.json` | 模型 API 配置 |
-
-开发模式存储于仓库内 `.pet/`（已被 `.gitignore` 排除）。打包后写入系统 `Application Support` 目录。
 
 ---
