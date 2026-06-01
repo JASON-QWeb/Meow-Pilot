@@ -25,27 +25,11 @@
 
 桌面宠物运行时会优先播放自定义动作图集；如果旧素材没有 `actionSpritesheet` 字段，则回退到三层拆件动画。工作室也可以导出 Petdex 结构的 zip 包，包含 `pet.json` 和 `spritesheet.webp`（若当前 WebView 不支持 WebP canvas 导出，则导出 `spritesheet.png`）。
 
-已内置模板。运行时读取的是项目内已解包的 spritesheet；原始 zip 包不是运行时依赖，如果需要长期保留原包，应单独放到明确的素材归档目录再提交。
+主线只内置以下 2 个模板。运行时读取的是项目内已解包的 spritesheet；原始 zip 包不是运行时依赖，如果需要长期保留原包，应单独放到明确的素材归档目录再提交。
 
 | Slug | 显示名 | 提交者 | 来源 |
 | --- | --- | --- | --- |
 | noir-webling | Noir Webling | local zip | project:apps/desktop/src/assets/petdex/noir-webling.webp |
-| doraemon | Doraemon | local zip | project:apps/desktop/src/assets/petdex/doraemon.webp |
-| eve | EVE | local zip | project:apps/desktop/src/assets/petdex/eve.webp |
 | chaossprite-default | chaossprite | local zip | project:apps/desktop/src/assets/petdex/chaossprite-default.png |
-| yupi-penguin | Yupi Penguin | local zip | project:apps/desktop/src/assets/petdex/yupi-penguin.webp |
-| capy | Capy | local zip | project:apps/desktop/src/assets/petdex/capy.webp |
-| fafa | fafa | local zip | project:apps/desktop/src/assets/petdex/fafa.webp |
-| clawd | Clawd | local zip | project:apps/desktop/src/assets/petdex/clawd.webp |
-| ducduc | ducduc | local zip | project:apps/desktop/src/assets/petdex/ducduc.webp |
-| maodie | 耄耋 | local zip | project:apps/desktop/src/assets/petdex/maodie.webp |
-| boba | Boba | railly | https://petdex.crafter.run/pets/boba |
-| byte-bunny | Byte Bunny | railly | https://petdex.crafter.run/pets/byte-bunny |
-| lulu-capybara-2 | 噜噜 | gitcjp | https://petdex.crafter.run/pets/lulu-capybara-2 |
-| mochi | Mochi | Aoi | https://petdex.crafter.run/pets/mochi |
-| axobotl | Axobotl | Joel E. | https://petdex.crafter.run/pets/axobotl |
-| peri-the-owl | Peri the Owl | asyncsan | https://petdex.crafter.run/pets/peri-the-owl |
-| golden-retriever | Golden Retriever | Prem S. | https://petdex.crafter.run/pets/golden-retriever |
-| skillbit | Skillbit | Shreyansh S. | https://petdex.crafter.run/pets/skillbit |
 
 Petdex 源代码使用 MIT License。Petdex README 说明宠物素材由各提交者拥有，遵循提交者声明的授权；新增或替换素材时应保留来源、提交者与 slug 信息。

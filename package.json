@@ -10,6 +10,8 @@
     "dev:desktop": "pnpm --filter @pet/desktop dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
+    "test": "pnpm --filter @pet/protocol build && pnpm -r --if-present test && pnpm test:data-policy",
+    "test:data-policy": "tsx scripts/verify-main-data-policy.ts",
     "migrate:scan": "tsx scripts/migrate/scan.ts",
     "migrate:import": "tsx scripts/migrate/scan.ts --apply"
   },

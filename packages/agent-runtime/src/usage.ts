@@ -293,36 +293,7 @@ async function makeAntigravityCard(provider?: ProviderSummary): Promise<TokenUsa
 
   try {
     const usage = await fetchAntigravityUsage();
-    const buckets = usage.buckets.filter((bucket) => bucket.modelId && bucket.remainingFraction !== undefined);
-    if (!buckets.length) {
-      throw new Error("Antigravity quota 接口没有返回模型额度。");
-    }
-
-    const primaryBucket = buckets.find((bucket) => bucket.modelId?.includes("gemini-3")) ?? buckets[0]!;
-    const primaryLeft = antigravityBucketPercent(primaryBucket);
-    const metrics = buckets.slice(0, 4).map((bucket) => {
-      const left = antigravityBucketPercent(bucket);
-      return {
-        label: formatAntigravityModelName(bucket.modelId),
-        value: formatPercentValue(left),
-        hint: bucket.resetTime ? `重置 ${formatDateTime(new Date(bucket.resetTime))}` : "Quota available",
-        percent: left,
-      };
-    });
-
-    return {
-      id: "antigravity",
-      label: "Antigravity",
-      kind: "subscription",
-      primaryLabel: "模型额度",
-      primaryValue: `${formatPercentValue(primaryLeft)} 可用`,
-      status: primaryLeft <= 0 ? "error" : "connected",
-      sourceLabel: "agy quota API",
-      href: "https://antigravity.google/docs/plans",
-      accent: "mint",
-      metrics,
-      updatedAt: new Date().toISOString(),
-    };
+    return makeAntigravityUsageCard(usage);
   } catch (error) {
     const probe = probeAntigravity(provider);
     return {
@@ -350,6 +321,55 @@ async function makeAntigravityCard(provider?: ProviderSummary): Promise<TokenUsa
       message: `Antigravity quota 同步失败：${error instanceof Error ? error.message : "未知错误"}`,
     };
   }
+}
+
+function makeAntigravityUsageCard(usage: AntigravityUsage): TokenUsageSummary {
+  const buckets = usage.buckets.filter((bucket) => bucket.modelId && (bucket.remainingFraction !== undefined || bucket.remainingAmount !== undefined));
+  if (!buckets.length) {
+    const probe = probeAntigravity({ configured: true } as ProviderSummary);
+    return {
+      id: "antigravity",
+      label: "Antigravity",
+      kind: "subscription",
+      primaryLabel: "模型额度",
+      primaryValue: probe.primaryValue,
+      status: probe.status,
+      sourceLabel: probe.sourceLabel,
+      href: "https://antigravity.google/docs/plans",
+      accent: "mint",
+      metrics: [
+        { label: "模型额度", value: probe.windowValue, hint: probe.windowHint },
+        { label: "刷新窗口", value: probe.weekValue, hint: probe.weekHint },
+      ],
+      message: probe.message,
+    };
+  }
+
+  const primaryBucket = buckets.find((bucket) => bucket.modelId?.includes("gemini-3")) ?? buckets[0]!;
+  const primaryLeft = antigravityBucketPercent(primaryBucket);
+  const metrics = buckets.slice(0, 4).map((bucket) => {
+    const left = antigravityBucketPercent(bucket);
+    return {
+      label: formatAntigravityModelName(bucket.modelId),
+      value: formatPercentValue(left),
+      hint: bucket.resetTime ? `重置 ${formatDateTime(new Date(bucket.resetTime))}` : "Quota available",
+      percent: left,
+    };
+  });
+
+  return {
+    id: "antigravity",
+    label: "Antigravity",
+    kind: "subscription",
+    primaryLabel: "模型额度",
+    primaryValue: `${formatPercentValue(primaryLeft)} 可用`,
+    status: primaryLeft <= 0 ? "error" : "connected",
+    sourceLabel: "agy quota API",
+    href: "https://antigravity.google/docs/plans",
+    accent: "mint",
+    metrics,
+    updatedAt: new Date().toISOString(),
+  };
 }
 
 function probeSubscriptionCli(id: string, provider?: ProviderSummary) {
@@ -561,9 +581,8 @@ function loadAntigravityAccessToken() {
 }
 
 async function makeXiaomiCard(provider?: ProviderSummary): Promise<TokenUsageSummary> {
-  const snapshot = loadXiaomiPlanUsageSnapshot();
   const cookie = loadXiaomiPlatformCookie();
-  const configured = Boolean(provider?.configured || loadXiaomiConfig() || snapshot || cookie);
+  const configured = Boolean(provider?.configured || loadXiaomiConfig() || cookie);
 
   if (!configured) {
     return {
@@ -594,8 +613,6 @@ async function makeXiaomiCard(provider?: ProviderSummary): Promise<TokenUsageSum
     }
   }
 
-  usage ??= snapshot;
-
   if (usage) {
     return makeXiaomiPlanUsageCard(usage, syncError);
   }
@@ -622,7 +639,7 @@ async function makeXiaomiCard(provider?: ProviderSummary): Promise<TokenUsageSum
         hint: "补偿 credits 使用量",
       },
     ],
-    message: syncError ?? "小米套餐用量需要控制台登录 Cookie；也可以继续使用本地快照。",
+    message: syncError ?? "小米套餐用量需要控制台登录 Cookie。",
   };
 }
 
@@ -654,7 +671,7 @@ function makeXiaomiPlanUsageCard(usage: XiaomiPlanUsage, syncError?: string): To
       },
     ],
     updatedAt: usage.updatedAt,
-    message: syncError ? `控制台同步失败，显示本地快照：${syncError}` : undefined,
+    message: syncError ? `控制台同步失败：${syncError}` : undefined,
   };
 }
 
@@ -754,32 +771,6 @@ function isCompensationUsage(name?: string) {
   return Boolean(name && /compensation|compensate|compensated|补偿/i.test(name));
 }
 
-function loadXiaomiPlanUsageSnapshot(): XiaomiPlanUsage | null {
-  const snapshot = loadTokenUsageSnapshot();
-  const xiaomi = isRecord(snapshot?.xiaomi) ? snapshot.xiaomi : undefined;
-  const currentPlan = parseSnapshotQuota(xiaomi?.currentPlan);
-  if (!currentPlan) return null;
-  const compensation = parseSnapshotQuota(xiaomi?.compensation);
-  const updatedAt = typeof xiaomi?.updatedAt === "string" ? xiaomi.updatedAt : undefined;
-  return {
-    currentPlan,
-    compensation,
-    updatedAt,
-    sourceLabel: "本地快照",
-  };
-}
-
-function loadTokenUsageSnapshot(): Record<string, unknown> | null {
-  const snapshotPath = process.env.PET_TOKEN_USAGE_SNAPSHOT_PATH ?? resolve(findWorkspaceRoot(), ".pet", "token-usage.json");
-  if (!existsSync(snapshotPath)) return null;
-  try {
-    const parsed = JSON.parse(readFileSync(snapshotPath, "utf8")) as unknown;
-    return isRecord(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
 function loadXiaomiPlatformCookie() {
   const envCookie = process.env.PET_XIAOMI_PLATFORM_COOKIE ?? process.env.XIAOMI_PLATFORM_COOKIE;
   if (envCookie?.trim()) return envCookie.trim();
@@ -792,20 +783,6 @@ function loadXiaomiPlatformCookie() {
   } catch {
     return undefined;
   }
-}
-
-function parseSnapshotQuota(value: unknown): XiaomiQuota | undefined {
-  if (!isRecord(value)) return undefined;
-  const used = toNumber(value.used);
-  const limit = toNumber(value.limit);
-  if (used === undefined || limit === undefined) return undefined;
-  const percent = toNumber(value.percent);
-  return {
-    used,
-    limit,
-    percent,
-    percentLabel: typeof value.percentLabel === "string" ? value.percentLabel : undefined,
-  };
 }
 
 function getNumberFromKeys(record: Record<string, unknown>, keys: string[]) {

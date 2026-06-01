@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { AccountProfile, ChatMessage, FriendSummary, Memory, SessionSummary, SocialExchangeRecord, SurfaceSpec } from "@pet/protocol";
+import type { AccountProfile, ChatMessage, FriendSummary, Memory, RuntimeStatsPayload, SessionSummary, SocialExchangeRecord, SurfaceSpec } from "@pet/protocol";
 
 export type RuntimeSession = {
   id: string;
@@ -224,7 +224,7 @@ export class PetStore {
     return row ? (JSON.parse(row.spec_json) as SurfaceSpec) : null;
   }
 
-  getRuntimeStats(now = new Date()) {
+  getRuntimeStats(now = new Date()): RuntimeStatsPayload {
     const totals = this.db
       .prepare(
         `

@@ -78,119 +78,6 @@ const providerOptions: Array<{ id: AiProviderId; label: string; defaultModel: st
 
 const defaultProviderOption = providerOptions[0]!;
 
-const mockFriends: FriendCard[] = [
-  {
-    id: "popular_doraemon",
-    displayName: "哆啦A梦",
-    handle: "@doraemon",
-    petName: "哆啦A梦",
-    activity: "正在整理百宝袋里的提醒",
-    mood: "热门",
-    tone: "blue",
-    real: false,
-    petdexSlug: "doraemon",
-  },
-  {
-    id: "popular_spiderman",
-    displayName: "Peter Parker",
-    handle: "@spidey",
-    petName: "蜘蛛侠",
-    activity: "正在巡逻今天的待办",
-    mood: "热门",
-    tone: "violet",
-    real: false,
-    petdexSlug: "chaossprite-default",
-  },
-  {
-    id: "popular_doubao",
-    displayName: "豆包",
-    handle: "@doubao",
-    petName: "豆包",
-    activity: "正在陪聊和总结灵感",
-    mood: "热门",
-    tone: "peach",
-    real: false,
-    petdexSlug: "clawd",
-  },
-  {
-    id: "popular_pikachu",
-    displayName: "皮卡丘",
-    handle: "@pikachu",
-    petName: "皮卡丘",
-    activity: "正在给任务充电",
-    mood: "热门",
-    tone: "lime",
-    real: false,
-    petdexSlug: "yupi-penguin",
-  },
-  {
-    id: "popular_nezha",
-    displayName: "哪吒",
-    handle: "@nezha",
-    petName: "哪吒",
-    activity: "正在同步今日状态",
-    mood: "热门",
-    tone: "peach",
-    real: false,
-    petdexSlug: "ducduc",
-  },
-  {
-    id: "popular_baymax",
-    displayName: "Baymax",
-    handle: "@baymax",
-    petName: "大白",
-    activity: "正在记录健康提醒",
-    mood: "热门",
-    tone: "blue",
-    real: false,
-    petdexSlug: "eve",
-  },
-  {
-    id: "mock_mianmian",
-    displayName: "沈棉",
-    handle: "@mian",
-    petName: "白桃",
-    activity: "正在整理会议纪要",
-    mood: "专注",
-    tone: "peach",
-    real: false,
-    petdexSlug: "fafa",
-  },
-  {
-    id: "mock_akira",
-    displayName: "Akira",
-    handle: "@akira",
-    petName: "Pixel",
-    activity: "正在跑前端截图检查",
-    mood: "忙碌",
-    tone: "blue",
-    real: false,
-    petdexSlug: "capy",
-  },
-  {
-    id: "mock_luna",
-    displayName: "林鹿",
-    handle: "@luna",
-    petName: "小栀",
-    activity: "正在听 Lo-fi 歌单",
-    mood: "放松",
-    tone: "lime",
-    real: false,
-    petdexSlug: "maodie",
-  },
-  {
-    id: "mock_noah",
-    displayName: "Noah",
-    handle: "@noah",
-    petName: "Nova",
-    activity: "正在同步 Skill 清单",
-    mood: "在线",
-    tone: "violet",
-    real: false,
-    petdexSlug: "boba",
-  },
-];
-
 const extraSkills: SkillCatalogItem[] = [
   {
     name: "browser-control",
@@ -453,18 +340,17 @@ export function RuntimeSidePanel({
   const [memoryDraft, setMemoryDraft] = useState(savedLongMemory);
 
   const friendCards = useMemo(() => {
-    const realCards: FriendCard[] = friends.map((friend, index) => ({
+    return friends.map((friend, index) => ({
       id: friend.id,
       displayName: friend.displayName,
       handle: `@${friend.handle}`,
-      petName: friend.petName ?? ["豆包", "Mochi", "泡芙"][index % 3]!,
-      activity: friend.lastExchangeAt ? `上次交换 ${new Date(friend.lastExchangeAt).toLocaleDateString()}` : ["正在查资料", "正在写周报", "正在听歌"][index % 3]!,
+      petName: friend.petName ?? friend.displayName,
+      activity: friend.lastExchangeAt ? `上次交换 ${new Date(friend.lastExchangeAt).toLocaleDateString()}` : "暂无交换记录",
       mood: friend.status === "accepted" ? "在线" : "待确认",
       tone: ["lime", "peach", "blue", "violet"][index % 4] as FriendCard["tone"],
       real: true,
       petdexSlug: pickFriendPetdexTemplate(friend.id || friend.handle || index).slug,
     }));
-    return [...mockFriends, ...realCards].slice(0, 16);
   }, [friends]);
 
   const skillGroups = useMemo(() => groupSkills(skills, installedFriendSkills), [installedFriendSkills, skills]);
@@ -477,7 +363,7 @@ export function RuntimeSidePanel({
     () => new Set([...skills, ...installedFriendSkills, ...extraSkills].map((skill) => skill.name)),
     [installedFriendSkills, skills],
   );
-  const localPetTemplate = getPetdexTemplate(petProfile?.appearance === "petdex-sprite" ? petProfile.petdexSlug : "skillbit");
+  const localPetTemplate = getPetdexTemplate(petProfile?.appearance === "petdex-sprite" ? petProfile.petdexSlug : undefined);
   const localPetName = petProfile?.name?.trim() || "我的宠物";
 
   useEffect(() => {

@@ -43,7 +43,6 @@ type NavIndicator = {
 const initialAppWindow = currentAppWindow();
 document.documentElement.dataset.window = initialAppWindow;
 const defaultScheduledTasks = createDefaultTasks();
-const mockOwnerName = "JasonQ";
 const supportedPetSpecies = new Set<string>(speciesOptions.map((option) => option.value));
 
 export function App() {
@@ -92,7 +91,8 @@ export function App() {
   } as CSSProperties;
   const nowLabel = new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" }).format(new Date());
   const dateLabel = new Intl.DateTimeFormat("zh-CN", { month: "short", day: "numeric", weekday: "short" }).format(new Date());
-  const headerTitle = workView === "home" ? `Welcome Back, ${mockOwnerName}` : viewTitle(workView);
+  const ownerName = agent.account?.displayName?.trim();
+  const headerTitle = workView === "home" ? (ownerName ? `Welcome Back, ${ownerName}` : "Welcome Back") : viewTitle(workView);
 
   useLayoutEffect(() => {
     const nav = navRef.current;

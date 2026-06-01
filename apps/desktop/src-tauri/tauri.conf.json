@@ -34,10 +34,10 @@
       {
         "label": "work",
         "title": "宠物工作窗口",
-        "width": 1160,
-        "height": 760,
-        "minWidth": 760,
-        "minHeight": 560,
+        "width": 1580,
+        "height": 960,
+        "minWidth": 1100,
+        "minHeight": 720,
         "transparent": false,
         "decorations": true,
         "alwaysOnTop": false,
@@ -46,7 +46,11 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' ipc: http://ipc.localhost; connect-src 'self' ipc: http://ipc.localhost ws://127.0.0.1:4747 http://127.0.0.1:4747; img-src 'self' data:; media-src 'self' blob: data:; style-src 'self' 'unsafe-inline'"
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$DESKTOP/*", "$AUDIO/*", "$VIDEO/*", "$DOWNLOAD/*"]
+      },
+      "csp": "default-src 'self' ipc: http://ipc.localhost; connect-src 'self' ipc: http://ipc.localhost ws://127.0.0.1:4747 http://127.0.0.1:4747; img-src 'self' data: asset: http://asset.localhost; media-src 'self' blob: data: asset: http://asset.localhost; style-src 'self' 'unsafe-inline'"
     }
   },
   "bundle": {

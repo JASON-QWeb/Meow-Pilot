@@ -1,21 +1,5 @@
-import axobotlSprite from "../../assets/petdex/axobotl.webp";
-import bobaSprite from "../../assets/petdex/boba.webp";
-import byteBunnySprite from "../../assets/petdex/byte-bunny.webp";
-import capySprite from "../../assets/petdex/capy.webp";
 import chaosspriteDefaultSprite from "../../assets/petdex/chaossprite-default.png";
-import clawdSprite from "../../assets/petdex/clawd.webp";
-import doraemonSprite from "../../assets/petdex/doraemon.webp";
-import ducducSprite from "../../assets/petdex/ducduc.webp";
-import eveSprite from "../../assets/petdex/eve.webp";
-import fafaSprite from "../../assets/petdex/fafa.webp";
-import goldenRetrieverSprite from "../../assets/petdex/golden-retriever.webp";
-import luluCapybaraSprite from "../../assets/petdex/lulu-capybara.webp";
-import maodieSprite from "../../assets/petdex/maodie.webp";
-import mochiSprite from "../../assets/petdex/mochi.webp";
 import noirWeblingSprite from "../../assets/petdex/noir-webling.webp";
-import periTheOwlSprite from "../../assets/petdex/peri-the-owl.webp";
-import skillbitSprite from "../../assets/petdex/skillbit.webp";
-import yupiPenguinSprite from "../../assets/petdex/yupi-penguin.webp";
 
 export type PetdexTemplate = {
   slug: string;
@@ -68,140 +52,12 @@ export const petdexTemplates: PetdexTemplate[] = [
     accentColor: "#9ca3af",
   },
   {
-    slug: "doraemon",
-    displayName: "Doraemon",
-    submittedBy: "Petdex",
-    sprite: doraemonSprite,
-    sourceUrl: projectPetdexSource("doraemon.webp"),
-    accentColor: "#38bdf8",
-  },
-  {
-    slug: "eve",
-    displayName: "EVE",
-    submittedBy: "Petdex",
-    sprite: eveSprite,
-    sourceUrl: projectPetdexSource("eve.webp"),
-    accentColor: "#60a5fa",
-  },
-  {
     slug: "chaossprite-default",
     displayName: "chaossprite",
     submittedBy: "Petdex",
     sprite: chaosspriteDefaultSprite,
     sourceUrl: projectPetdexSource("chaossprite-default.png"),
     accentColor: "#fb7185",
-  },
-  {
-    slug: "yupi-penguin",
-    displayName: "Yupi Penguin",
-    submittedBy: "Petdex",
-    sprite: yupiPenguinSprite,
-    sourceUrl: projectPetdexSource("yupi-penguin.webp"),
-    accentColor: "#60a5fa",
-  },
-  {
-    slug: "capy",
-    displayName: "Capy",
-    submittedBy: "Petdex",
-    sprite: capySprite,
-    sourceUrl: projectPetdexSource("capy.webp"),
-    accentColor: "#f59e0b",
-  },
-  {
-    slug: "fafa",
-    displayName: "fafa",
-    submittedBy: "Petdex",
-    sprite: fafaSprite,
-    sourceUrl: projectPetdexSource("fafa.webp"),
-    accentColor: "#a8a29e",
-  },
-  {
-    slug: "clawd",
-    displayName: "Clawd",
-    submittedBy: "Petdex",
-    sprite: clawdSprite,
-    sourceUrl: projectPetdexSource("clawd.webp"),
-    accentColor: "#c084fc",
-  },
-  {
-    slug: "ducduc",
-    displayName: "ducduc",
-    submittedBy: "Petdex",
-    sprite: ducducSprite,
-    sourceUrl: projectPetdexSource("ducduc.webp"),
-    accentColor: "#facc15",
-  },
-  {
-    slug: "maodie",
-    displayName: "耄耋",
-    submittedBy: "Petdex",
-    sprite: maodieSprite,
-    sourceUrl: projectPetdexSource("maodie.webp"),
-    accentColor: "#fb923c",
-  },
-  {
-    slug: "boba",
-    displayName: "Boba",
-    submittedBy: "railly",
-    sprite: bobaSprite,
-    sourceUrl: "https://petdex.crafter.run/pets/boba",
-    accentColor: "#f7c76b",
-  },
-  {
-    slug: "byte-bunny",
-    displayName: "Byte Bunny",
-    submittedBy: "railly",
-    sprite: byteBunnySprite,
-    sourceUrl: "https://petdex.crafter.run/pets/byte-bunny",
-    accentColor: "#7dd3fc",
-  },
-  {
-    slug: "lulu-capybara-2",
-    displayName: "噜噜",
-    submittedBy: "gitcjp",
-    sprite: luluCapybaraSprite,
-    sourceUrl: "https://petdex.crafter.run/pets/lulu-capybara-2",
-    accentColor: "#f4a261",
-  },
-  {
-    slug: "mochi",
-    displayName: "Mochi",
-    submittedBy: "Aoi",
-    sprite: mochiSprite,
-    sourceUrl: "https://petdex.crafter.run/pets/mochi",
-    accentColor: "#f8b4d9",
-  },
-  {
-    slug: "axobotl",
-    displayName: "Axobotl",
-    submittedBy: "Joel E.",
-    sprite: axobotlSprite,
-    sourceUrl: "https://petdex.crafter.run/pets/axobotl",
-    accentColor: "#8dd7cf",
-  },
-  {
-    slug: "peri-the-owl",
-    displayName: "Peri the Owl",
-    submittedBy: "asyncsan",
-    sprite: periTheOwlSprite,
-    sourceUrl: "https://petdex.crafter.run/pets/peri-the-owl",
-    accentColor: "#c4b5fd",
-  },
-  {
-    slug: "golden-retriever",
-    displayName: "Golden Retriever",
-    submittedBy: "Prem S.",
-    sprite: goldenRetrieverSprite,
-    sourceUrl: "https://petdex.crafter.run/pets/golden-retriever",
-    accentColor: "#fbbf24",
-  },
-  {
-    slug: "skillbit",
-    displayName: "Skillbit",
-    submittedBy: "Shreyansh S.",
-    sprite: skillbitSprite,
-    sourceUrl: "https://petdex.crafter.run/pets/skillbit",
-    accentColor: "#a7f3d0",
   },
 ];
 

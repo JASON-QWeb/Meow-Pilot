@@ -1,4 +1,5 @@
 import { ExternalLink, Mic, Music, Plus, Send, Square, Trash2, Video, Volume2 } from "lucide-react";
+import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import type { ChatMessage, ChatSendPayload, MediaPlayerNode, SessionSummary, SurfaceSpec, UIAction, VoiceSpeakPayload, VoiceTranscribePayload } from "@pet/protocol";
 import { SurfaceRenderer } from "../surfaces/SurfaceRenderer";
@@ -603,7 +604,7 @@ function InlineMediaPlayer({ node }: { node: MediaPlayerNode }) {
   const Icon = node.media === "music" ? Music : Video;
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [localMedia, setLocalMedia] = useState<{ url: string; name: string; mimeType: string } | null>(null);
-  const activeSrc = localMedia?.url ?? node.src;
+  const activeSrc = localMedia?.url ?? resolveMediaSrc(node.src);
   const activeMimeType = localMedia?.mimeType || node.mimeType;
   const playable = Boolean(activeSrc || node.embedUrl);
 
@@ -642,13 +643,23 @@ function InlineMediaPlayer({ node }: { node: MediaPlayerNode }) {
       </div>
 
       {activeSrc && node.media === "music" ? (
-        <audio controls src={activeSrc}>
+        <audio controls preload="metadata" src={activeSrc}>
           {activeMimeType ? <source src={activeSrc} type={activeMimeType} /> : null}
         </audio>
       ) : null}
 
       {activeSrc && node.media === "video" ? (
-        <video controls poster={node.thumbnailUrl} src={activeSrc}>
+        <video
+          autoPlay
+          muted
+          playsInline
+          controls
+          poster={node.thumbnailUrl}
+          preload="auto"
+          src={activeSrc}
+          onLoadedMetadata={(event) => prepareVideoPreview(event.currentTarget)}
+          onCanPlay={(event) => void event.currentTarget.play().catch(() => undefined)}
+        >
           {activeMimeType ? <source src={activeSrc} type={activeMimeType} /> : null}
         </video>
       ) : null}
@@ -680,6 +691,24 @@ function InlineMediaPlayer({ node }: { node: MediaPlayerNode }) {
       />
     </section>
   );
+}
+
+function resolveMediaSrc(src?: string) {
+  if (!src?.startsWith("pet-local-file://")) return src;
+  try {
+    const url = new URL(src);
+    const filePath = decodeURIComponent(url.pathname);
+    return isTauri() ? `${convertFileSrc(filePath)}${url.hash}` : src;
+  } catch {
+    return src;
+  }
+}
+
+function prepareVideoPreview(video: HTMLVideoElement) {
+  if (Number.isFinite(video.duration) && video.duration > 45 && video.currentTime < 1) {
+    video.currentTime = 30;
+  }
+  void video.play().catch(() => undefined);
 }
 
 function preferredRecordingMimeType() {
