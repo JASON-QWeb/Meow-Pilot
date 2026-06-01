@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent } from "react";
+import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
 import { LogicalSize, PhysicalPosition } from "@tauri-apps/api/dpi";
+import { desktopDir } from "@tauri-apps/api/path";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Gauge, MessageCircle, Music, Send, Video, Volume2, X } from "lucide-react";
 import type { ChatMessage, PetActivity, PetEmotion, TokenUsageSummary } from "@pet/protocol";
@@ -35,6 +37,7 @@ type DragState = {
 };
 
 type OverlayMode = "menu" | "usage" | "chat" | "music" | "video" | null;
+type LocalMedia = { url: string; name: string; mimeType: string; objectUrl?: boolean };
 
 const activityCopy: Record<PetActivity, string> = {
   coding: "编码中",
@@ -44,6 +47,9 @@ const activityCopy: Record<PetActivity, string> = {
 };
 const collapsedWindowSize = { width: 180, height: 180 };
 const expandedWindowSize = { width: 540, height: 380 };
+const demoMusicFileName = "1.02. 七里香.flac";
+const demoVideoFileName = "黑暗蜘蛛侠-preview.mp4";
+const demoVideoDisplayName = "黑暗蜘蛛侠.mp4";
 
 export function DraggablePetOverlay({
   profile,
@@ -68,11 +74,15 @@ export function DraggablePetOverlay({
   const [dragging, setDragging] = useState(false);
   const [overlayMode, setOverlayMode] = useState<OverlayMode>(null);
   const [quickChatDraft, setQuickChatDraft] = useState("");
-  const [localTrack, setLocalTrack] = useState<{ url: string; name: string; mimeType: string } | null>(null);
-  const [localVideo, setLocalVideo] = useState<{ url: string; name: string; mimeType: string } | null>(null);
+  const [demoTrack, setDemoTrack] = useState<LocalMedia | null>(null);
+  const [demoVideo, setDemoVideo] = useState<LocalMedia | null>(null);
+  const [localTrack, setLocalTrack] = useState<LocalMedia | null>(null);
+  const [localVideo, setLocalVideo] = useState<LocalMedia | null>(null);
   const overlayOpen = overlayMode !== null;
   const tokenRows = buildTokenProgressRows(tokenUsage);
   const recentMessages = messages.filter((message) => message.role !== "system").slice(-4);
+  const activeTrack = localTrack ?? demoTrack;
+  const activeVideo = localVideo ?? demoVideo;
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -95,18 +105,42 @@ export function DraggablePetOverlay({
     void resizePetWindow(overlayOpen).catch(() => undefined);
   }, [dragWindow, overlayOpen]);
 
+  useEffect(() => {
+    if (!isTauri()) return;
+    let cancelled = false;
+    void desktopDir()
+      .then((desktopPath) => {
+        if (cancelled) return;
+        const normalizedDesktop = desktopPath.endsWith("/") ? desktopPath : `${desktopPath}/`;
+        setDemoTrack({
+          url: convertFileSrc(`${normalizedDesktop}${demoMusicFileName}`),
+          name: demoMusicFileName,
+          mimeType: "audio/flac",
+        });
+        setDemoVideo({
+          url: convertFileSrc(`${normalizedDesktop}${demoVideoFileName}`),
+          name: demoVideoDisplayName,
+          mimeType: "video/mp4",
+        });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   useEffect(
     () => () => {
-      if (localTrack?.url) URL.revokeObjectURL(localTrack.url);
+      revokeLocalMedia(localTrack);
     },
-    [localTrack?.url],
+    [localTrack],
   );
 
   useEffect(
     () => () => {
-      if (localVideo?.url) URL.revokeObjectURL(localVideo.url);
+      revokeLocalMedia(localVideo);
     },
-    [localVideo?.url],
+    [localVideo],
   );
 
   function clamp(nextX: number, nextY: number): PetPosition {
@@ -221,11 +255,12 @@ export function DraggablePetOverlay({
   function chooseLocalTrack(file?: File) {
     if (!file) return;
     setLocalTrack((current) => {
-      if (current?.url) URL.revokeObjectURL(current.url);
+      revokeLocalMedia(current);
       return {
         url: URL.createObjectURL(file),
         name: file.name,
         mimeType: file.type,
+        objectUrl: true,
       };
     });
   }
@@ -233,11 +268,12 @@ export function DraggablePetOverlay({
   function chooseLocalVideo(file?: File) {
     if (!file) return;
     setLocalVideo((current) => {
-      if (current?.url) URL.revokeObjectURL(current.url);
+      revokeLocalMedia(current);
       return {
         url: URL.createObjectURL(file),
         name: file.name,
         mimeType: file.type,
+        objectUrl: true,
       };
     });
   }
@@ -344,17 +380,17 @@ export function DraggablePetOverlay({
           <header>
             <div>
               <strong>音乐播放器</strong>
-              <p>{localTrack ? localTrack.name : "选择本地歌曲"}</p>
+              <p>{activeTrack ? activeTrack.name : "选择本地歌曲"}</p>
             </div>
             <button type="button" aria-label="关闭音乐播放器" onClick={closeOverlay}>
               <X size={15} />
             </button>
           </header>
-          {localTrack ? (
+          {activeTrack ? (
             <div className="petMusicPlayer">
               <Music size={24} />
-              <audio controls src={localTrack.url}>
-                {localTrack.mimeType ? <source src={localTrack.url} type={localTrack.mimeType} /> : null}
+              <audio controls preload="metadata" src={activeTrack.url}>
+                {activeTrack.mimeType ? <source src={activeTrack.url} type={activeTrack.mimeType} /> : null}
               </audio>
             </div>
           ) : (
@@ -363,7 +399,7 @@ export function DraggablePetOverlay({
               选择歌曲播放
             </button>
           )}
-          {localTrack ? (
+          {activeTrack ? (
             <button className="petMusicReplace" type="button" onClick={() => musicInputRef.current?.click()}>
               换一首
             </button>
@@ -388,16 +424,26 @@ export function DraggablePetOverlay({
           <header>
             <div>
               <strong>视频播放器</strong>
-              <p>{localVideo ? localVideo.name : "选择本地视频"}</p>
+              <p>{activeVideo ? activeVideo.name : "选择本地视频"}</p>
             </div>
             <button type="button" aria-label="关闭视频播放器" onClick={closeOverlay}>
               <X size={15} />
             </button>
           </header>
-          {localVideo ? (
+          {activeVideo ? (
             <div className="petVideoPlayer">
-              <video controls src={localVideo.url}>
-                {localVideo.mimeType ? <source src={localVideo.url} type={localVideo.mimeType} /> : null}
+              <video
+                autoPlay
+                muted
+                loop
+                playsInline
+                controls
+                preload="auto"
+                src={activeVideo.url}
+                onLoadedMetadata={(event) => prepareVideoPreview(event.currentTarget)}
+                onCanPlay={(event) => void event.currentTarget.play().catch(() => undefined)}
+              >
+                {activeVideo.mimeType ? <source src={activeVideo.url} type={activeVideo.mimeType} /> : null}
               </video>
             </div>
           ) : (
@@ -406,7 +452,7 @@ export function DraggablePetOverlay({
               选择视频播放
             </button>
           )}
-          {localVideo ? (
+          {activeVideo ? (
             <button className="petVideoReplace" type="button" onClick={() => videoInputRef.current?.click()}>
               换一个
             </button>
@@ -528,4 +574,15 @@ function buildTokenProgressRows(summaries: TokenUsageSummary[]): TokenProgressRo
 
 function clampPercent(value: number) {
   return Math.max(0, Math.min(100, value));
+}
+
+function revokeLocalMedia(media: LocalMedia | null) {
+  if (media?.objectUrl) URL.revokeObjectURL(media.url);
+}
+
+function prepareVideoPreview(video: HTMLVideoElement) {
+  if (Number.isFinite(video.duration) && video.duration > 45 && video.currentTime < 1) {
+    video.currentTime = 30;
+  }
+  void video.play().catch(() => undefined);
 }

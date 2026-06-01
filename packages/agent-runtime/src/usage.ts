@@ -100,6 +100,8 @@ type AntigravityQuotaBucket = {
 type AntigravityUsage = {
   buckets: AntigravityQuotaBucket[];
   planName?: string;
+  sourceLabel?: string;
+  updatedAt?: string;
 };
 
 const CODEX_USAGE_API = "https://chatgpt.com/backend-api/wham/usage";
@@ -281,7 +283,10 @@ function makeSubscriptionCard({
 }
 
 async function makeAntigravityCard(provider?: ProviderSummary): Promise<TokenUsageSummary> {
-  if (!provider?.configured) {
+  const snapshot = loadAntigravityUsageSnapshot();
+  const configured = Boolean(provider?.configured || snapshot);
+
+  if (!configured) {
     return makeSubscriptionCard({
       id: "antigravity",
       label: "Antigravity",
@@ -291,40 +296,54 @@ async function makeAntigravityCard(provider?: ProviderSummary): Promise<TokenUsa
     });
   }
 
+  let syncError: string | undefined;
+  let usage: AntigravityUsage | null = null;
+
   try {
-    const usage = await fetchAntigravityUsage();
-    const buckets = usage.buckets.filter((bucket) => bucket.modelId && bucket.remainingFraction !== undefined);
-    if (!buckets.length) {
-      throw new Error("Antigravity quota 接口没有返回模型额度。");
+    if (provider?.configured) {
+      usage = await fetchAntigravityUsage();
     }
-
-    const primaryBucket = buckets.find((bucket) => bucket.modelId?.includes("gemini-3")) ?? buckets[0]!;
-    const primaryLeft = antigravityBucketPercent(primaryBucket);
-    const metrics = buckets.slice(0, 4).map((bucket) => {
-      const left = antigravityBucketPercent(bucket);
-      return {
-        label: formatAntigravityModelName(bucket.modelId),
-        value: formatPercentValue(left),
-        hint: bucket.resetTime ? `重置 ${formatDateTime(new Date(bucket.resetTime))}` : "Quota available",
-        percent: left,
-      };
-    });
-
-    return {
-      id: "antigravity",
-      label: "Antigravity",
-      kind: "subscription",
-      primaryLabel: "模型额度",
-      primaryValue: `${formatPercentValue(primaryLeft)} 可用`,
-      status: primaryLeft <= 0 ? "error" : "connected",
-      sourceLabel: "agy quota API",
-      href: "https://antigravity.google/docs/plans",
-      accent: "mint",
-      metrics,
-      updatedAt: new Date().toISOString(),
-    };
   } catch (error) {
-    const probe = probeAntigravity(provider);
+    syncError = error instanceof Error ? error.message : "Antigravity quota 同步失败。";
+  }
+
+  usage ??= snapshot;
+
+  if (usage) {
+    return makeAntigravityUsageCard(usage, syncError);
+  }
+
+  const probe = probeAntigravity(provider);
+  return {
+    id: "antigravity",
+    label: "Antigravity",
+    kind: "subscription",
+    primaryLabel: "模型额度",
+    primaryValue: probe.primaryValue,
+    status: probe.status,
+    sourceLabel: probe.sourceLabel,
+    href: "https://antigravity.google/docs/plans",
+    accent: "mint",
+    metrics: [
+      {
+        label: "模型额度",
+        value: probe.windowValue,
+        hint: probe.windowHint,
+      },
+      {
+        label: "刷新窗口",
+        value: probe.weekValue,
+        hint: probe.weekHint,
+      },
+    ],
+    message: syncError ? `Antigravity quota 同步失败：${syncError}` : probe.message,
+  };
+}
+
+function makeAntigravityUsageCard(usage: AntigravityUsage, syncError?: string): TokenUsageSummary {
+  const buckets = usage.buckets.filter((bucket) => bucket.modelId && (bucket.remainingFraction !== undefined || bucket.remainingAmount !== undefined));
+  if (!buckets.length) {
+    const probe = probeAntigravity({ configured: true } as ProviderSummary);
     return {
       id: "antigravity",
       label: "Antigravity",
@@ -336,20 +355,39 @@ async function makeAntigravityCard(provider?: ProviderSummary): Promise<TokenUsa
       href: "https://antigravity.google/docs/plans",
       accent: "mint",
       metrics: [
-        {
-          label: "模型额度",
-          value: probe.windowValue,
-          hint: probe.windowHint,
-        },
-        {
-          label: "刷新窗口",
-          value: probe.weekValue,
-          hint: probe.weekHint,
-        },
+        { label: "模型额度", value: probe.windowValue, hint: probe.windowHint },
+        { label: "刷新窗口", value: probe.weekValue, hint: probe.weekHint },
       ],
-      message: `Antigravity quota 同步失败：${error instanceof Error ? error.message : "未知错误"}`,
+      message: syncError ? `Antigravity quota 同步失败：${syncError}` : probe.message,
     };
   }
+
+  const primaryBucket = buckets.find((bucket) => bucket.modelId?.includes("gemini-3")) ?? buckets[0]!;
+  const primaryLeft = antigravityBucketPercent(primaryBucket);
+  const metrics = buckets.slice(0, 4).map((bucket) => {
+    const left = antigravityBucketPercent(bucket);
+    return {
+      label: formatAntigravityModelName(bucket.modelId),
+      value: formatPercentValue(left),
+      hint: bucket.resetTime ? `重置 ${formatDateTime(new Date(bucket.resetTime))}` : "Quota available",
+      percent: left,
+    };
+  });
+
+  return {
+    id: "antigravity",
+    label: "Antigravity",
+    kind: "subscription",
+    primaryLabel: "模型额度",
+    primaryValue: `${formatPercentValue(primaryLeft)} 可用`,
+    status: primaryLeft <= 0 ? "error" : "connected",
+    sourceLabel: usage.sourceLabel ?? "agy quota API",
+    href: "https://antigravity.google/docs/plans",
+    accent: "mint",
+    metrics,
+    updatedAt: usage.updatedAt ?? new Date().toISOString(),
+    message: syncError ? `quota API 同步失败，显示 agy CLI 本地快照：${syncError}` : undefined,
+  };
 }
 
 function probeSubscriptionCli(id: string, provider?: ProviderSummary) {
@@ -769,6 +807,23 @@ function loadXiaomiPlanUsageSnapshot(): XiaomiPlanUsage | null {
   };
 }
 
+function loadAntigravityUsageSnapshot(): AntigravityUsage | null {
+  const snapshot = loadTokenUsageSnapshot();
+  const antigravity = isRecord(snapshot?.antigravity) ? snapshot.antigravity : undefined;
+  if (!antigravity) return null;
+
+  const rawBuckets = Array.isArray(antigravity.buckets) ? antigravity.buckets : [];
+  const buckets = rawBuckets.filter(isRecord).map(parseAntigravitySnapshotBucket).filter((bucket): bucket is AntigravityQuotaBucket => Boolean(bucket));
+  if (!buckets.length) return null;
+
+  return {
+    buckets,
+    planName: typeof antigravity.planName === "string" ? antigravity.planName : undefined,
+    sourceLabel: typeof antigravity.sourceLabel === "string" ? antigravity.sourceLabel : "agy CLI 看板",
+    updatedAt: typeof antigravity.updatedAt === "string" ? antigravity.updatedAt : undefined,
+  };
+}
+
 function loadTokenUsageSnapshot(): Record<string, unknown> | null {
   const snapshotPath = process.env.PET_TOKEN_USAGE_SNAPSHOT_PATH ?? resolve(findWorkspaceRoot(), ".pet", "token-usage.json");
   if (!existsSync(snapshotPath)) return null;
@@ -778,6 +833,20 @@ function loadTokenUsageSnapshot(): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+function parseAntigravitySnapshotBucket(bucket: Record<string, unknown>): AntigravityQuotaBucket | null {
+  const modelId = typeof bucket.modelId === "string" ? bucket.modelId : undefined;
+  const remainingFraction = toNumber(bucket.remainingFraction);
+  const remainingAmount = toNumber(bucket.remainingAmount);
+  if (!modelId || (remainingFraction === undefined && remainingAmount === undefined)) return null;
+  return {
+    modelId,
+    remainingFraction,
+    remainingAmount,
+    resetTime: typeof bucket.resetTime === "string" ? bucket.resetTime : undefined,
+    tokenType: typeof bucket.tokenType === "string" ? bucket.tokenType : undefined,
+  };
 }
 
 function loadXiaomiPlatformCookie() {

@@ -1,18 +1,22 @@
 <p align="center">
-  <img src="apps/desktop/src/assets/petdex/noir-webling.webp" width="160" />
+  <img src="docs/demos/hero-pet-run.gif" alt="Purr Pilot desktop pet running preview" width="100%" />
 </p>
 
-<h1 align="center">🐾 Purr Pilot — Your AI Desktop Pet Companion</h1>
+<h1 align="center">🐾 Purr Pilot</h1>
 
 <p align="center">
-  <strong>A living AI pet that sits on your desktop — it chats, thinks, and works alongside you.</strong>
+  <strong>A small AI companion for your Mac desktop: present, personal, and useful.</strong>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/platform-macOS-blue?style=flat-square&logo=apple" />
-  <img src="https://img.shields.io/badge/runtime-local--first-green?style=flat-square" />
-  <img src="https://img.shields.io/badge/tauri-v2-orange?style=flat-square&logo=tauri" />
+  <img src="https://img.shields.io/badge/local--first-private-green?style=flat-square" />
+  <img src="https://img.shields.io/badge/desktop-pet-lime?style=flat-square" />
   <img src="https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square" />
+</p>
+
+<p align="center">
+  <a href="docs/demos/purr-pilot-demo.mp4">Watch the full demo</a> · <a href="#-getting-started">Run it locally</a>
 </p>
 
 <p align="center">
@@ -21,52 +25,38 @@
 
 ---
 
-> **Purr Pilot** is more than a desktop widget — it's an AI companion with memory, skills, and a social circle. It lives on your desktop, always ready to chat, answer questions, play music, manage tasks, and even talk to you by voice. All data stays entirely on your machine. Zero cloud dependency. Zero privacy concerns.
+**Purr Pilot** is an AI pet that lives at the edge of your desktop. Open the full workspace when you need focus, or use the right-click quick panels for chat, music, video, usage, and status. It is designed to feel like a companion you keep around all day, with local-first data by default.
 
 ---
 
-## ✨ Key Highlights
+## ✨ Why It Feels Useful
 
 <table>
 <tr>
 <td width="50%">
 
-### 🖥️ Always-On Desktop Pet
-A transparent, always-on-top window you can drag anywhere. Right-click for quick panels: instant chat, music player, and usage dashboard — no need to open the main window.
+### A Companion On Your Desktop
+The pet stays where you work. Click to open the workspace, or right-click for chat, usage, music, and video.
 
 </td>
 <td width="50%">
 
-### 🧠 AI Chat & Memory
-Multi-session chat with Markdown rendering, streaming responses, and generated interactive cards. The AI proactively suggests memory summaries, helping your pet remember your preferences and habits.
+### Conversations Become Tools
+Ask naturally and get media players, weather cards, reminders, and compact status panels inside the conversation.
 
 </td>
 </tr>
 <tr>
 <td>
 
-### 🎤 Voice Conversations
-Voice input transcription and TTS playback. Enable "voice loop" mode for fully hands-free, voice-only interaction. Works with supported voice APIs, including Xiaomi MiMo, OpenAI, and OpenAI-compatible voice endpoints.
+### It Learns Your Rhythm
+Sessions, preferences, and long-term memories stay local, so the pet can become more tuned to your habits over time.
 
 </td>
 <td>
 
-### 🎨 Customization & Petdex Collection
-Choose from **18 pre-built characters** or upload any image — auto background removal, layer splitting, and Petdex action spritesheet generation. Your pet, your rules.
-
-</td>
-</tr>
-<tr>
-<td>
-
-### 🔌 Multi-Model Freedom
-Out-of-the-box support for DeepSeek, OpenAI, Anthropic, Google Gemini, xAI, OpenRouter, and any OpenAI-compatible endpoint. Switch freely, no vendor lock-in.
-
-</td>
-<td>
-
-### 👥 Social & Skill Exchange
-Add friends and build your pet's social circle. Exchange skills and memories between friends — make your pet smarter over time.
+### It Can Grow With Friends
+Change the character, create your own pet image, and exchange Skills with friends to make your pet more capable.
 
 </td>
 </tr>
@@ -74,52 +64,56 @@ Add friends and build your pet's social circle. Exchange skills and memories bet
 
 ---
 
-## 🎬 Feature Demos
+## 🎬 Product Demos
 
-<!-- 
-  📌 GIF Demo Section
-  Place recorded GIFs in the repo (suggested path: docs/demos/) and replace the placeholders below.
-  Recommended size: ~800×500, keep GIFs under 5MB.
--->
+<p align="center">
+  <a href="docs/demos/purr-pilot-demo.mp4">Watch the full demo video</a>
+</p>
 
 <table>
 <tr>
 <td align="center" width="50%">
 
-<!-- TODO: Replace with desktop pet interaction GIF -->
-<img src="https://placehold.co/800x500/1a1a2e/e0e0e0?text=🐾+Desktop+Pet" width="100%" />
+<img src="docs/demos/01-basic-dashboard.gif" alt="Basic dashboard, usage, memory, Skill, and settings switching" width="100%" />
 
-**Desktop Pet · Always Ready**
-<sub>Transparent overlay · Drag anywhere · Right-click quick panels</sub>
+**Your Workspace At A Glance**
+<sub>Home, live usage, memory, Skill, and settings switching</sub>
 
 </td>
 <td align="center" width="50%">
 
-<!-- TODO: Replace with AI chat GIF -->
-<img src="https://placehold.co/800x500/1a1a2e/e0e0e0?text=💬+AI+Chat" width="100%" />
+<img src="docs/demos/02-session-media-weather.gif" alt="Multi-session UI with local Jay Chou music, local Spider-Man video, and weather cards" width="100%" />
 
-**AI Chat · Streaming Responses**
-<sub>Multi-session · Markdown · Generated interactive cards</sub>
+**Chat Turns Into Small Apps**
+<sub>Multi-session, local music, local video, and weather cards</sub>
 
 </td>
 </tr>
 <tr>
 <td align="center">
 
-<!-- TODO: Replace with customization GIF -->
-<img src="https://placehold.co/800x500/1a1a2e/e0e0e0?text=🎨+Image+Studio" width="100%" />
+<img src="docs/demos/03-skill-exchange.gif" alt="Two Skill exchanges with Bai Tao" width="100%" />
 
-**Image Studio · Make It Yours**
-<sub>Upload image · Auto cutout & rigging · Action spritesheet generation</sub>
+**Exchange Skills With Bai Tao**
+<sub>Select a friend and receive two usable Skills</sub>
 
 </td>
 <td align="center">
 
-<!-- TODO: Replace with voice conversation GIF -->
-<img src="https://placehold.co/800x500/1a1a2e/e0e0e0?text=🎤+Voice+Chat" width="100%" />
+<img src="docs/demos/04-pet-customization.gif" alt="Image studio switching Petdex characters while the desktop pet changes" width="100%" />
 
-**Voice Chat · Hands Free**
-<sub>Voice input · TTS playback · Full voice loop</sub>
+**Character Changes Sync Instantly**
+<sub>Petdex switching and custom image studio</sub>
+
+</td>
+</tr>
+<tr>
+<td align="center" colspan="2">
+
+<img src="docs/demos/05-pet-quick-actions.gif" alt="Desktop pet right-click quick menu, chat, usage, music, and video" width="620" />
+
+**Useful Without Opening The Window**
+<sub>Quick chat, live usage, music, video, and work states</sub>
 
 </td>
 </tr>
@@ -127,40 +121,22 @@ Add friends and build your pet's social circle. Exchange skills and memories bet
 
 ---
 
-## 🖼️ Feature Overview
+## 🖼️ What You Can Do
 
-| Module | Description |
+| Moment | Experience |
 |:--|:--|
-| 🏠 **Home Dashboard** | Pet status overview, 7-day message trend chart, scheduled tasks, quick action shortcuts |
-| 💬 **Multi-Session Chat** | Session sidebar, Markdown rendering, streaming responses, voice input/output |
-| 🎨 **Image Studio** | Petdex template gallery, custom image import, action spritesheet generation, zip export |
-| 🧩 **Skill System** | 4 built-in core skills + 12 extended skills, friend-to-friend skill exchange |
-| 📋 **Scheduled Tasks** | One-time / daily / weekly reminders via pet popup, chat, or voice notification |
-| 🧠 **Memory Manager** | Pet persona, owner preferences, long-term memory — AI proposes, you approve |
-| 📊 **Usage Tracking** | Per-provider token consumption with visual progress bars |
-| ⚙️ **Settings** | One-stop model API and voice service configuration |
+| 💬 **Ask Quickly** | Start from the desktop pet, then continue in the full multi-session workspace |
+| 🎵 **Use Local Media** | Let the pet play desktop music or video without breaking your flow |
+| 🌤️ **See Useful Cards** | Weather, plans, reminders, and summaries appear as compact cards |
+| 🧠 **Keep Memory Local** | Preferences, persona, and long-term context can build up on your machine |
+| 🧩 **Grow With Skills** | Exchange Skills with friends so the pet learns new workflows |
+| 🎨 **Make It Yours** | Choose a preset character or turn your own image into the pet |
 
 ---
 
-## 🐾 Petdex Character Collection
+## 🐾 Characters And Interactive Cards
 
-**18 built-in characters**, each with 9 action states (idle, run left/right, wave, jump, fail, wait, sprint, review):
-
-`axobotl` · `boba` · `byte-bunny` · `capy` · `chaossprite` · `clawd` · `doraemon` · `ducduc` · `eve` · `fafa` · `golden-retriever` · `lulu-capybara` · `maodie` · `mochi` · `noir-webling` · `peri-the-owl` · `skillbit` · `yupi-penguin`
-
-> 💡 Not enough? Upload any image and the **Image Studio** auto-generates a full Petdex-compatible action spritesheet!
-
----
-
-## 🎯 A2UI — AI-Generated Interactive Interfaces
-
-Your pet generates rich interactive cards inline — not just plain text:
-
-- 📊 **Data Visuals** — Pie charts, metric dashboards, data tables
-- 🎵 **Media Playback** — Inline music & video players
-- 🌤️ **Weather Cards** — Real-time city weather (Open-Meteo)
-- 📝 **Form Interactions** — Submittable input forms
-- 📅 **Timelines** — Schedules & event displays
+Purr Pilot ships with 18 Petdex characters, and you can upload an image to create your own desktop pet. Conversations can render music, video, weather, forms, timelines, and other compact interactive cards.
 
 ---
 
@@ -270,7 +246,7 @@ PET_AI_SPEECH_VOICE=...
 
 **Dual-window design:**
 - `pet` window — 180×180, transparent frameless, always-on-top across all desktops
-- `work` window — 1160×760, standard workspace, opened by clicking the pet
+- `work` window — 1580×960, standard workspace, opened by clicking the pet
 
 ---
 
@@ -286,7 +262,3 @@ All data stored entirely on your machine — zero cloud dependency:
 Development data lives in `.pet/` within the repo (gitignored). Packaged apps write to the system `Application Support` directory.
 
 ---
-
-<p align="center">
-  <sub>Built with ❤️ · Local-first · Your data, your control</sub>
-</p>

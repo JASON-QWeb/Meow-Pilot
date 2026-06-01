@@ -1,18 +1,22 @@
 <p align="center">
-  <img src="apps/desktop/src/assets/petdex/noir-webling.webp" width="160" />
+  <img src="docs/demos/hero-pet-run.gif" alt="Purr Pilot 桌面宠物跑动预览" width="100%" />
 </p>
 
-<h1 align="center">🐾 Purr Pilot — 你的 AI 桌面宠物伙伴</h1>
+<h1 align="center">🐾 Purr Pilot</h1>
 
 <p align="center">
-  <strong>住在你桌面上的 AI 宠物，能聊天陪伴、能思考、能帮你工作。</strong>
+  <strong>把一个会工作、会记忆、会陪伴的小助手放进你的 Mac 桌面。</strong>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/platform-macOS-blue?style=flat-square&logo=apple" />
-  <img src="https://img.shields.io/badge/runtime-local--first-green?style=flat-square" />
-  <img src="https://img.shields.io/badge/tauri-v2-orange?style=flat-square&logo=tauri" />
+  <img src="https://img.shields.io/badge/local--first-private-green?style=flat-square" />
+  <img src="https://img.shields.io/badge/desktop-pet-lime?style=flat-square" />
   <img src="https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square" />
+</p>
+
+<p align="center">
+  <a href="docs/demos/purr-pilot-demo.mp4">观看完整演示</a> · <a href="#-快速开始">立即运行</a>
 </p>
 
 <p align="center">
@@ -21,52 +25,38 @@
 
 ---
 
-> **Purr Pilot** 不只是一个桌面挂件——它是一个拥有记忆、技能和社交圈的 AI 伙伴。它常驻在你的桌面上，随时准备聊天、回答问题、播放音乐、管理任务，甚至通过语音跟你对话。所有数据完全本地存储，隐私零担忧。
+**Purr Pilot** 是一只常驻桌面边缘的 AI 宠物。它能在你需要时展开成工作台，也能只用右键快捷面板完成聊天、听歌、看视频、看用量和查看状态。数据优先保存在本地，适合每天开机就陪在旁边。
 
 ---
 
-## ✨ 核心亮点
+## ✨ 为什么想每天打开
 
 <table>
 <tr>
 <td width="50%">
 
-### 🖥️ 桌面常驻宠物
-透明置顶窗口，可自由拖拽到屏幕任意位置。右键唤出快捷面板：闪聊、音乐播放器、用量看板，无需打开主窗口即可交互。
+### 桌面边上的 AI 伙伴
+小人常驻在桌面上，点击展开完整工作台，右键直接打开快捷对话、用量、音乐和视频。
 
 </td>
 <td width="50%">
 
-### 🧠 AI 对话 & 记忆
-多会话聊天支持 Markdown 渲染、流式输出和生成式交互卡片。AI 会主动提议记忆摘要，帮宠物记住你的偏好和习惯。
+### 会话变成可操作界面
+一句话就能调出本地媒体、天气卡片、任务提醒和状态面板，不只是等一段文字回复。
 
 </td>
 </tr>
 <tr>
 <td>
 
-### 🎤 语音对话
-支持语音输入转写和 TTS 语音播报，开启「语音循环」后可全程语音免打字交互。可接入已支持的语音 API，包括小米 MiMo、OpenAI 以及兼容 OpenAI 语音协议的端点。
+### 会记住你的偏好
+多会话、长期记忆和日常摘要都在本机沉淀，宠物会逐渐更懂你的工作节奏。
 
 </td>
 <td>
 
-### 🎨 形象自定义 & Petdex 图鉴
-从 **18 款预设角色** 中挑选，或上传任意图片——自动抠图、三层拆件、生成 Petdex 动作图集。你的宠物，你做主。
-
-</td>
-</tr>
-<tr>
-<td>
-
-### 🔌 多模型自由切换
-开箱即用支持 DeepSeek、OpenAI、Anthropic、Google Gemini、xAI、OpenRouter 及任意 OpenAI 兼容端点。一键切换，不绑定任何平台。
-
-</td>
-<td>
-
-### 👥 社交与技能交换
-添加好友，组建你的宠物社交圈。朋友之间可以互相交换技能和记忆——让你的宠物越来越强大。
+### 能养成也能社交
+换造型、做自定义小人、和好友交换 Skill，让桌面宠物从工具变成自己的角色。
 
 </td>
 </tr>
@@ -74,52 +64,56 @@
 
 ---
 
-## 🎬 功能演示
+## 🎬 产品演示
 
-<!-- 
-  📌 GIF Demo 预留区
-  将录制好的 GIF 放入仓库（建议路径：docs/demos/），然后替换下方占位图。
-  推荐尺寸：800×500 左右，GIF 控制在 5MB 以内。
--->
+<p align="center">
+  <a href="docs/demos/purr-pilot-demo.mp4">查看完整演示视频</a>
+</p>
 
 <table>
 <tr>
 <td align="center" width="50%">
 
-<!-- TODO: 替换为桌面宠物交互 GIF -->
-<img src="https://placehold.co/800x500/1a1a2e/e0e0e0?text=🐾+桌面宠物交互" width="100%" />
+<img src="docs/demos/01-basic-dashboard.gif" alt="基础看板、用量、记忆、Skill 与配置切换" width="100%" />
 
-**桌面宠物 · 随时待命**
-<sub>透明置顶 · 自由拖拽 · 右键快捷面板</sub>
+**工作台一眼掌握**
+<sub>主页、真实用量、记忆、Skill 和配置快速切换</sub>
 
 </td>
 <td align="center" width="50%">
 
-<!-- TODO: 替换为 AI 聊天 GIF -->
-<img src="https://placehold.co/800x500/1a1a2e/e0e0e0?text=💬+AI+智能聊天" width="100%" />
+<img src="docs/demos/02-session-media-weather.gif" alt="多会话、周杰伦本地音乐、黑暗蜘蛛侠视频与天气卡片" width="100%" />
 
-**AI 聊天 · 流式响应**
-<sub>多会话 · Markdown 渲染 · 生成式交互卡片</sub>
+**会话里直接出现工具**
+<sub>多会话、本地音乐、本地视频和天气卡片</sub>
 
 </td>
 </tr>
 <tr>
 <td align="center">
 
-<!-- TODO: 替换为形象自定义 GIF -->
-<img src="https://placehold.co/800x500/1a1a2e/e0e0e0?text=🎨+形象工作室" width="100%" />
+<img src="docs/demos/03-skill-exchange.gif" alt="与白桃连续交换两个 Skill" width="100%" />
 
-**形象工作室 · 你的宠物你做主**
-<sub>上传图片 · 自动抠图拆件 · 生成动作图集</sub>
+**和白桃交换 Skill**
+<sub>选择好友，连续接收两个可用 Skill</sub>
 
 </td>
 <td align="center">
 
-<!-- TODO: 替换为语音对话 GIF -->
-<img src="https://placehold.co/800x500/1a1a2e/e0e0e0?text=🎤+语音对话" width="100%" />
+<img src="docs/demos/04-pet-customization.gif" alt="形象工作室切换 Petdex 造型并打开自定义图片工作室" width="100%" />
 
-**语音对话 · 解放双手**
-<sub>语音输入 · TTS 播报 · 全程语音循环</sub>
+**换造型马上同步到桌面**
+<sub>Petdex 角色切换和自定义图片工作室</sub>
+
+</td>
+</tr>
+<tr>
+<td align="center" colspan="2">
+
+<img src="docs/demos/05-pet-quick-actions.gif" alt="桌面宠物右键快捷菜单、快速对话、用量、音乐与视频" width="620" />
+
+**不用打开窗口也能操作**
+<sub>快速对话、真实用量、听歌、视频和工作状态</sub>
 
 </td>
 </tr>
@@ -127,40 +121,22 @@
 
 ---
 
-## 🖼️ 功能一览
+## 🖼️ 你可以用它做什么
 
-| 功能模块 | 说明 |
+| 场景 | 体验 |
 |:--|:--|
-| 🏠 **主页仪表盘** | 宠物状态总览、7 天消息趋势图、定时任务概览、快捷入口 |
-| 💬 **多会话聊天** | 会话侧栏管理、Markdown 渲染、流式响应、语音输入/播报 |
-| 🎨 **形象工作室** | Petdex 模板画廊、自定义图片导入、动作图集生成、一键导出 zip |
-| 🧩 **技能系统** | 内置 4 项核心技能 + 12 项扩展技能，支持好友间技能交换 |
-| 📋 **定时任务** | 创建单次/每日/每周提醒，支持宠物弹窗、聊天、语音三种通知方式 |
-| 🧠 **记忆管理** | 宠物人设、主人偏好、长期记忆，AI 自动提议、人工确认 |
-| 📊 **用量追踪** | 按 Provider 统计 Token 消耗量，可视化进度条 |
-| ⚙️ **配置中心** | 模型 API、语音服务一站式配置 |
+| 💬 **随手聊天** | 从桌面右键开始问，也可以展开多会话工作台继续聊 |
+| 🎵 **本地媒体** | 让宠物播放桌面音乐或视频，不需要离开当前工作流 |
+| 🌤️ **生活卡片** | 天气、计划、提醒直接变成可看的小卡片 |
+| 🧠 **长期记忆** | 偏好、人设、日常事项可持续沉淀在本地 |
+| 🧩 **Skill 养成** | 从好友那里交换 Skill，让宠物越来越会帮忙 |
+| 🎨 **形象切换** | 预设角色和自定义图片都能变成桌面小人 |
 
 ---
 
-## 🐾 Petdex 角色图鉴
+## 🐾 角色和互动卡片
 
-**18 款内置角色**，每个都有 9 套动作帧（待机、左右跑、挥手、跳跃、失败、等待、奔跑、思考）：
-
-`axobotl` · `boba` · `byte-bunny` · `capy` · `chaossprite` · `clawd` · `doraemon` · `ducduc` · `eve` · `fafa` · `golden-retriever` · `lulu-capybara` · `maodie` · `mochi` · `noir-webling` · `peri-the-owl` · `skillbit` · `yupi-penguin`
-
-> 💡 不满足于预设？上传任何图片，**形象工作室**会自动生成兼容 Petdex 的完整动作图集！
-
----
-
-## 🎯 A2UI — AI 生成式交互界面
-
-宠物可以在聊天中生成丰富的交互卡片，而不仅仅是文字回复：
-
-- 📊 **数据图表** — 饼图、指标面板、数据表格
-- 🎵 **媒体播放** — 音乐/视频内嵌播放器
-- 🌤️ **天气卡片** — 实时城市天气查询（Open-Meteo）
-- 📝 **表单交互** — 可提交的表单输入
-- 📅 **时间线** — 日程与事件展示
+内置 18 款 Petdex 角色，也可以上传图片生成自己的桌面小人。聊天里不只返回文字，还会生成音乐、视频、天气、表单、时间线等互动卡片。
 
 ---
 
@@ -270,7 +246,7 @@ PET_AI_SPEECH_VOICE=...
 
 **双窗口设计：**
 - `pet` 窗口 — 180×180，透明无边框，全桌面置顶
-- `work` 窗口 — 1160×760，标准工作区，点击宠物唤出
+- `work` 窗口 — 1580×960，标准工作区，点击宠物唤出
 
 ---
 
@@ -286,7 +262,3 @@ PET_AI_SPEECH_VOICE=...
 开发模式存储于仓库内 `.pet/`（已被 `.gitignore` 排除）。打包后写入系统 `Application Support` 目录。
 
 ---
-
-<p align="center">
-  <sub>用 ❤️ 构建 · Local-first · 你的数据，只属于你</sub>
-</p>

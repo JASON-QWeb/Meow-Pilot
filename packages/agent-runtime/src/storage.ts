@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { AccountProfile, ChatMessage, FriendSummary, Memory, SessionSummary, SocialExchangeRecord, SurfaceSpec } from "@pet/protocol";
+import type { AccountProfile, ChatMessage, FriendSummary, Memory, RuntimeStatsPayload, SessionSummary, SocialExchangeRecord, SurfaceSpec } from "@pet/protocol";
 
 export type RuntimeSession = {
   id: string;
@@ -83,6 +83,7 @@ type MessageContentRow = {
 };
 
 const defaultDbPath = resolve(findWorkspaceRoot(), ".pet", "pet-agentd.sqlite");
+const defaultRuntimeStatsPath = resolve(findWorkspaceRoot(), ".pet", "runtime-stats.json");
 const legacyTemplateAssistantMessages = [
   "我准备了一个音乐播放面板。当前走本地技能外壳，接入 Spotify / Apple Music / 本地媒体后会直接播放和管理队列。",
   "视频面板已准备好。这里可以承载 YouTube、Bilibili 或本地文件播放，并挂接字幕、摘要和笔记技能。",
@@ -224,7 +225,7 @@ export class PetStore {
     return row ? (JSON.parse(row.spec_json) as SurfaceSpec) : null;
   }
 
-  getRuntimeStats(now = new Date()) {
+  getRuntimeStats(now = new Date()): RuntimeStatsPayload {
     const totals = this.db
       .prepare(
         `
@@ -258,7 +259,7 @@ export class PetStore {
       }
     }
 
-    return {
+    return applyRuntimeStatsOverride({
       generatedAt: now.toISOString(),
       totalSessions: totals.total_sessions,
       totalMessages: totals.total_messages,
@@ -267,7 +268,7 @@ export class PetStore {
       yesterdayMessages,
       todayEstimatedTokens,
       yesterdayEstimatedTokens,
-    };
+    });
   }
 
   saveSurface(sessionId: string, surface: SurfaceSpec) {
@@ -535,6 +536,40 @@ function estimateTokens(text: string) {
   const words = text.replace(/[\u3400-\u9fff]/g, " ").match(/[A-Za-z0-9_'-]+/g)?.length ?? 0;
   const punctuation = text.match(/[^\sA-Za-z0-9_\u3400-\u9fff]/g)?.length ?? 0;
   return Math.max(1, Math.ceil(cjk * 1.1 + words * 1.35 + punctuation * 0.35));
+}
+
+function applyRuntimeStatsOverride(base: RuntimeStatsPayload): RuntimeStatsPayload {
+  const override = loadRuntimeStatsOverride();
+  if (!override) return base;
+  return {
+    generatedAt: typeof override.generatedAt === "string" ? override.generatedAt : base.generatedAt,
+    totalSessions: readStatNumber(override.totalSessions, base.totalSessions),
+    totalMessages: readStatNumber(override.totalMessages, base.totalMessages),
+    totalSurfaces: readStatNumber(override.totalSurfaces, base.totalSurfaces),
+    todayMessages: readStatNumber(override.todayMessages, base.todayMessages),
+    yesterdayMessages: readStatNumber(override.yesterdayMessages, base.yesterdayMessages),
+    todayEstimatedTokens: readStatNumber(override.todayEstimatedTokens, base.todayEstimatedTokens),
+    yesterdayEstimatedTokens: readStatNumber(override.yesterdayEstimatedTokens, base.yesterdayEstimatedTokens),
+  };
+}
+
+function loadRuntimeStatsOverride(): Partial<RuntimeStatsPayload> | null {
+  const statsPath = process.env.PET_RUNTIME_STATS_PATH ?? defaultRuntimeStatsPath;
+  if (!existsSync(statsPath)) return null;
+  try {
+    const parsed = JSON.parse(readFileSync(statsPath, "utf8")) as unknown;
+    return isStatsRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function isStatsRecord(value: unknown): value is Partial<RuntimeStatsPayload> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readStatNumber(value: unknown, fallback: number) {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : fallback;
 }
 
 function findWorkspaceRoot() {

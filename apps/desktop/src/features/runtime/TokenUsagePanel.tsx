@@ -116,7 +116,9 @@ export function TokenUsagePanel({ providers, summaries, onRefresh }: TokenUsageP
                 ))}
               </div>
               <div className="tokenCardFoot">
-                <span>{card.kind === "subscription" ? "订阅制" : "API付费"}</span>
+                <span>
+                  {card.kind === "subscription" ? "订阅制" : "API付费"} · {card.sourceLabel}
+                </span>
                 <a className="tokenSourceIcon" href={card.href} target="_blank" rel="noreferrer" title={`打开 ${card.label} 用量页面`} aria-label={`打开 ${card.label} ${card.sourceLabel}`}>
                   <ExternalLink size={14} />
                 </a>

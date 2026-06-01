@@ -1,3 +1,6 @@
+import { existsSync, readdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { extname, join, parse } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import {
   type AccountCurrentPayload,
@@ -1159,12 +1162,17 @@ function createInlineMediaSurface(text: string): SurfaceSpec | undefined {
 
   const now = new Date().toISOString();
   const sourceUrl = extractFirstUrl(text);
-  const playback = sourceUrl ? resolvePlayback(intent, sourceUrl) : { status: "needs-source" as const };
-  const host = sourceUrl ? hostLabel(sourceUrl) : undefined;
+  const localMedia = sourceUrl ? undefined : findLocalMediaForRequest(intent, text);
+  const playback = sourceUrl
+    ? resolvePlayback(intent, sourceUrl)
+    : localMedia
+      ? { src: toLocalMediaSrc(localMedia.path, intent), mimeType: localMedia.mimeType, status: "ready" as const }
+      : { status: "needs-source" as const };
+  const host = sourceUrl ? hostLabel(sourceUrl) : localMedia ? "本地桌面" : undefined;
   const layout = mediaPlayer({
     media: intent,
-    title: mediaTitle(intent, sourceUrl, text),
-    subtitle: sourceUrl ? `来源：${host ?? sourceUrl}` : "选择本地文件，或发送可播放链接",
+    title: localMedia?.title ?? mediaTitle(intent, sourceUrl, text),
+    subtitle: sourceUrl ? `来源：${host ?? sourceUrl}` : localMedia ? `桌面本地文件：${localMedia.fileName}` : "选择本地文件，或发送可播放链接",
     provider: host,
     posterTone: intent === "music" ? "aqua" : "rose",
     sourceUrl,
@@ -1173,6 +1181,86 @@ function createInlineMediaSurface(text: string): SurfaceSpec | undefined {
   const surface = surfaceBase("media", intent, intent === "music" ? "音乐播放器" : "视频播放器", layout, now);
   surface.actions = sourceUrl ? [{ id: "open", label: "打开来源", style: "secondary", icon: "external" }] : undefined;
   return surface;
+}
+
+type LocalMediaCandidate = {
+  path: string;
+  fileName: string;
+  mimeType: string;
+  title: string;
+};
+
+const audioExtensions = new Set([".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg"]);
+const videoExtensions = new Set([".mp4", ".mov", ".m4v", ".webm"]);
+
+function findLocalMediaForRequest(media: "music" | "video", requestText: string): LocalMediaCandidate | undefined {
+  const desktop = join(homedir(), "Desktop");
+  if (!existsSync(desktop)) return undefined;
+
+  const allowedExtensions = media === "music" ? audioExtensions : videoExtensions;
+  const files = readdirSync(desktop, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name)
+    .filter((name) => allowedExtensions.has(extname(name).toLowerCase()));
+
+  const preferred = files
+    .map((fileName) => ({
+      fileName,
+      score: scoreLocalMedia(fileName, media, requestText),
+    }))
+    .filter((item) => item.score > 0)
+    .sort((first, second) => second.score - first.score || first.fileName.localeCompare(second.fileName, "zh-CN"))[0];
+
+  if (!preferred) return undefined;
+
+  const filePath = join(desktop, preferred.fileName);
+  return {
+    path: filePath,
+    fileName: preferred.fileName,
+    mimeType: mimeTypeFromUrl(preferred.fileName) ?? (media === "music" ? "audio/mpeg" : "video/mp4"),
+    title: localMediaTitle(preferred.fileName, media),
+  };
+}
+
+function scoreLocalMedia(fileName: string, media: "music" | "video", requestText: string) {
+  const lowerName = fileName.toLowerCase();
+  const lowerText = requestText.toLowerCase();
+  let score = 1;
+
+  if (media === "music") {
+    if (containsAny(lowerText, ["周杰伦", "jay", "chou"]) && containsAny(lowerName, ["周杰伦", "jay", "chou", "七里香", "止戰", "止战"])) score += 100;
+    if (containsAny(lowerText, ["七里香", "qilixiang"]) && containsAny(lowerName, ["七里香", "qilixiang"])) score += 60;
+    if (containsAny(lowerText, ["止戰", "止战"]) && containsAny(lowerName, ["止戰", "止战"])) score += 60;
+    return score;
+  }
+
+  const stem = parse(fileName).name.toLowerCase();
+  if (containsAny(lowerText, ["黑暗蜘蛛侠", "蜘蛛侠", "spiderman", "spider-man"]) && containsAny(lowerName, ["黑暗蜘蛛侠", "蜘蛛侠", "spiderman", "spider-man"])) {
+    score += 120;
+  }
+  if (containsAny(lowerText, ["看视频", "视频", "video"]) && containsAny(lowerName, ["黑暗蜘蛛侠", "蜘蛛侠", "spiderman", "spider-man"])) {
+    score += 80;
+  }
+  if (containsAny(lowerName, ["preview", "预览"])) score += 40;
+  if (containsAny(lowerText, ["叫1", "叫 1", "1那个", "1 那个", "01"]) && /^0?1(?:[.\s_-]|$)/.test(stem)) score += 60;
+  if (containsAny(lowerName, ["黑暗蜘蛛侠", "蜘蛛侠", "spiderman", "spider-man", "1", "01"])) score += 20;
+  return score;
+}
+
+function localMediaTitle(fileName: string, media: "music" | "video") {
+  const stem = parse(fileName).name.replace(/^\d+[.\s_-]*/, "").trim() || parse(fileName).name;
+  if (media === "music") {
+    if (/七里香/i.test(stem)) return "周杰伦 · 七里香";
+    if (/止戰|止战/i.test(stem)) return "周杰伦 · 止战之殇";
+    return `本地歌曲 · ${stem}`;
+  }
+  if (/黑暗蜘蛛侠|蜘蛛侠|spiderman|spider-man/i.test(stem)) return "桌面视频 · 黑暗蜘蛛侠";
+  return `桌面视频 · ${fileName}`;
+}
+
+function toLocalMediaSrc(filePath: string, media: "music" | "video") {
+  const src = `pet-local-file://${encodeURI(filePath)}`;
+  return media === "video" ? `${src}#t=30` : src;
 }
 
 function surfaceBase(type: SurfaceSpec["type"], intent: SurfaceSpec["intent"], title: string, layout: ComponentNode, createdAt: string): SurfaceSpec {
