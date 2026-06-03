@@ -18,12 +18,12 @@
 </p>
 
 <p align="center">
-  English · <a href="README.md">中文</a>
+  English · 中文
 </p>
 
 ---
 
-## 🎬 Product Demos
+## Product Demos
 
 <table>
 <tr>
@@ -71,7 +71,7 @@
 
 ---
 
-## 🖼️ Covered Scenarios
+## Covered Scenarios
 
 | Scenario | Experience |
 |:--|:--|
@@ -84,7 +84,7 @@
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Requirements
 
@@ -99,10 +99,10 @@
 # Clone and install dependencies
 pnpm install
 
-# 🚀 Start the native desktop app (recommended)
+# Start the native desktop app (recommended)
 pnpm --filter @pet/desktop tauri:dev
 
-# 💡 Debug Web UI + Agent Runtime only
+# Debug Web UI + Agent Runtime only
 pnpm dev
 ```
 
@@ -122,7 +122,7 @@ Output path: `apps/desktop/src-tauri/target/release/bundle/macos/Pet Agent.app`
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
 ### Model API
 
@@ -136,7 +136,7 @@ PET_AI_BASE_URL=https://...     # optional
 ```
 
 <details>
-<summary>📋 Supported provider-native variables</summary>
+<summary> Supported provider-native variables</summary>
 
 ```bash
 OPENAI_API_KEY=...
@@ -174,7 +174,7 @@ PET_AI_SPEECH_VOICE=...
 
 ---
 
-## 🏗️ Project Architecture
+## Project Architecture
 
 ```
 ├── apps/desktop/              → React + Vite + Tauri desktop app

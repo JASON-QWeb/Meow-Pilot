@@ -18,12 +18,12 @@
 </p>
 
 <p align="center">
-  <a href="README.en.md">English</a> · 中文
+  English · 中文
 </p>
 
 ---
 
-## 🎬 产品演示
+## 产品演示
 
 <table>
 <tr>
@@ -71,7 +71,7 @@
 
 ---
 
-## 🖼️ 覆盖场景
+## 覆盖场景
 
 | 场景 | 体验 |
 |:--|:--|
@@ -84,7 +84,7 @@
 
 ---
 
-## 🚀 快速开始
+## 快速开始
 
 ### 环境要求
 
@@ -99,10 +99,10 @@
 # 克隆并安装依赖
 pnpm install
 
-# 🚀 启动原生桌面 App（推荐）
+# 启动原生桌面 App（推荐）
 pnpm --filter @pet/desktop tauri:dev
 
-# 💡 仅调试 Web UI + Agent Runtime
+# 仅调试 Web UI + Agent Runtime
 pnpm dev
 ```
 
@@ -122,7 +122,7 @@ pnpm --filter @pet/desktop tauri:build:dmg
 
 ---
 
-## ⚙️ 配置
+## 配置
 
 ### 模型 API
 
@@ -136,7 +136,7 @@ PET_AI_BASE_URL=https://...     # 可选
 ```
 
 <details>
-<summary>📋 支持的 Provider 原生变量</summary>
+<summary> 支持的 Provider 原生变量</summary>
 
 ```bash
 OPENAI_API_KEY=...
@@ -174,7 +174,7 @@ PET_AI_SPEECH_VOICE=...
 
 ---
 
-## 🏗️ 项目架构
+## 项目架构
 
 ```
 ├── apps/desktop/              → React + Vite + Tauri 桌面应用
