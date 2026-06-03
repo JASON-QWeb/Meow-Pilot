@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { loadAiProviderConfig, loadXiaomiConfig } from "./apiConfig";
 import { listProviders } from "./catalog";
+import { findWorkspaceRoot } from "./workspace";
 
 type CodexAuthFile = {
   tokens?: {
@@ -922,19 +923,6 @@ function toNumber(value: unknown): number | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function findWorkspaceRoot() {
-  let cursor = process.cwd();
-  for (let depth = 0; depth < 6; depth += 1) {
-    if (existsSync(resolve(cursor, "pnpm-workspace.yaml"))) {
-      return cursor;
-    }
-    const parent = resolve(cursor, "..");
-    if (parent === cursor) break;
-    cursor = parent;
-  }
-  return process.cwd();
 }
 
 function extractXiaomiApiMessage(value: unknown): string | undefined {

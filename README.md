@@ -182,11 +182,24 @@ PET_AI_SPEECH_VOICE=...
 │   ├── src/services/          → WebSocket RPC 客户端
 │   └── src-tauri/             → Rust 原生壳 & 窗口管理
 ├── packages/agent-runtime/    → Node.js WebSocket Agent 服务
-│   ├── providers/             → AI SDK & 语音集成
-│   └── storage.ts             → SQLite 本地持久化
+│   ├── src/kernel/            → AgentKernel、ContextBuilder、工具循环
+│   ├── src/tools/             → ToolRegistry、终端/文件/网络/记忆/Skill 工具
+│   ├── src/memory/            → 长期记忆服务、显式记忆写入、会话摘要
+│   ├── src/skills/            → SKILL.md 扫描、摘要检索、隔离/启停
+│   ├── src/providers/         → AI SDK & 语音集成
+│   ├── src/storage.ts         → SQLite、FTS5、审计表和运行时状态
+│   └── src/server.ts          → 本地 WebSocket RPC 入口
 ├── packages/protocol/         → 前后端共享类型协议
 └── skills/bundled/            → 内置技能定义
 ```
+
+### Agent Runtime 能力
+
+- 自研 Agent Kernel，不依赖 Agent SDK / LangGraph；模型通过 `pet-tool` 工具块进入本地 ToolRegistry。
+- `terminal_exec`、`file_read`、`file_write`、`file_patch`、`file_delete`、`file_move`、`web_search`、`memory_*`、`skill_*` 等工具统一走权限和审计。
+- 只读 workspace 操作可自动执行；文件写入、删除、移动、安装、联网、sudo、上传、kill 等操作必须用户确认。
+- 长期记忆使用 SQLite + FTS5；Skill 启动时只扫描 frontmatter，命中后再读取完整 `SKILL.md`。
+- 工作台内置“工具与权限”页面，可查看待审批请求、命令、路径、diff、风险和工具运行时间线。
 
 ---
 
@@ -196,7 +209,7 @@ PET_AI_SPEECH_VOICE=...
 
 | 文件 | 说明 |
 |:--|:--|
-| `.pet/pet-agentd.sqlite` | 会话、消息、记忆、技能等全部数据 |
+| `.pet/pet-agentd.sqlite` | 会话、消息、记忆、会话摘要、Skill、工具运行、权限审计等数据 |
 | `.pet/ai-provider.json` | 模型 API 配置 |
 
 ---

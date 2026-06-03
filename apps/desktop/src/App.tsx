@@ -13,6 +13,7 @@ import {
   Puzzle,
   Search,
   Settings,
+  SquareTerminal,
   Users,
 } from "lucide-react";
 import { Window as TauriWindow, getCurrentWindow } from "@tauri-apps/api/window";
@@ -30,7 +31,7 @@ import { usePetAgent, type ConnectionStatus } from "./hooks/usePetAgent";
 import { usePersistentState } from "./lib/usePersistentState";
 
 type AppWindow = "pet" | "work";
-type WorkView = "home" | "chat" | "friends" | "custom" | "usage" | "tasks" | "memory" | "skills" | "config";
+type WorkView = "home" | "chat" | "friends" | "custom" | "usage" | "tasks" | "memory" | "skills" | "tools" | "config";
 type StoredWorkView = WorkView | "settings";
 type NavIndicator = {
   height: number;
@@ -198,6 +199,7 @@ export function App() {
           <NavButton active={workView === "chat"} icon={<MessageCircle size={24} />} label="会话" onClick={() => changeWorkView("chat")} />
           <NavButton active={workView === "memory"} icon={<Brain size={24} />} label="记忆" onClick={() => changeWorkView("memory")} />
           <NavButton active={workView === "skills"} icon={<Puzzle size={24} />} label="Skill" onClick={() => changeWorkView("skills")} />
+          <NavButton active={workView === "tools"} icon={<SquareTerminal size={24} />} label="工具" onClick={() => changeWorkView("tools")} />
         </div>
         <div className="workNavBottom">
           <NavButton active={workView === "config"} icon={<Settings size={24} />} label="配置" onClick={() => changeWorkView("config")} />
@@ -359,6 +361,33 @@ export function App() {
       );
     }
 
+    if (workView === "tools") {
+      return (
+        <RuntimeSidePanel
+          view="tools"
+          memories={agent.memories}
+          memoryProposal={agent.memoryProposal}
+          skills={agent.skills}
+          providers={agent.providers}
+          account={agent.account}
+          friends={agent.friends}
+          latestExchange={agent.latestExchange}
+          pendingPermissions={agent.pendingPermissions}
+          toolRuns={agent.toolRuns}
+          onResolvePermission={agent.resolvePermission}
+          onCommitMemory={agent.commitMemoryProposal}
+          onRejectMemory={agent.rejectMemoryProposal}
+          onRunSkill={agent.runSkill}
+          onSignIn={agent.signIn}
+          onAddFriend={agent.addFriend}
+          onExchangeFriend={agent.exchangeWithFriend}
+          onConfigureProvider={agent.configureProvider}
+          onConfigureVoice={agent.configureVoice}
+          onSaveMemory={agent.saveMemoryText}
+        />
+      );
+    }
+
     if (workView === "config") {
       return (
         <RuntimeSidePanel
@@ -418,6 +447,7 @@ function viewTitle(view: WorkView) {
     tasks: "定时任务",
     memory: "记忆",
     skills: "Skill",
+    tools: "工具与权限",
     config: "配置",
   };
   return titles[view];

@@ -1,7 +1,20 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { AccountProfile, ChatMessage, FriendSummary, Memory, RuntimeStatsPayload, SessionSummary, SocialExchangeRecord, SurfaceSpec } from "@pet/protocol";
+import type {
+  AccountProfile,
+  ChatMessage,
+  FriendSummary,
+  Memory,
+  PermissionRequest,
+  RuntimeStatsPayload,
+  SessionSummary,
+  SkillSummary,
+  SocialExchangeRecord,
+  SurfaceSpec,
+  ToolRunRecord,
+} from "@pet/protocol";
+import { findWorkspaceRoot } from "./workspace";
 
 export type RuntimeSession = {
   id: string;
@@ -24,6 +37,7 @@ type MessageRow = {
   created_at: string;
   run_id: string | null;
   surface_json?: string | null;
+  attachments_json?: string | null;
 };
 
 type MemoryRow = {
@@ -31,9 +45,16 @@ type MemoryRow = {
   kind: Memory["kind"];
   scope: Memory["scope"];
   content: string;
+  summary?: string | null;
   confidence: number;
   source: Memory["source"];
+  source_type?: Memory["sourceType"] | null;
+  source_id?: string | null;
+  visibility?: Memory["visibility"] | null;
+  pii_tags_json?: string | null;
   created_at: string;
+  updated_at?: string | null;
+  expires_at?: string | null;
 };
 
 type SurfaceRow = {
@@ -82,7 +103,74 @@ type MessageContentRow = {
   created_at: string;
 };
 
+type SessionSummaryTextRow = {
+  summary: string;
+};
+
+type ToolRunRow = {
+  id: string;
+  session_id: string | null;
+  run_id: string | null;
+  tool_name: string;
+  input_json: string;
+  output_json: string | null;
+  status: ToolRunRecord["status"];
+  permission_id: string | null;
+  exit_code: number | null;
+  cwd: string | null;
+  created_at: string;
+  completed_at: string | null;
+  summary: string | null;
+  risk: string | null;
+};
+
+type PermissionRow = {
+  id: string;
+  session_id: string | null;
+  run_id: string | null;
+  tool_name: string;
+  title: string;
+  description: string;
+  permission_level: PermissionRequest["permissionLevel"];
+  risk: string;
+  input_json: string;
+  diff: string | null;
+  command: string | null;
+  cwd: string | null;
+  status: PermissionRequest["status"];
+  created_at: string;
+  resolved_at: string | null;
+};
+
+type SkillRow = {
+  name: string;
+  description: string;
+  category: string;
+  permissions_json: string;
+  enabled: number;
+  path: string | null;
+  source: SkillSummary["source"] | null;
+  version: string | null;
+  tags_json: string | null;
+  quarantined: number;
+  last_used_at: string | null;
+  updated_at: string;
+};
+
+type SkillRunRow = {
+  id: string;
+  name: string;
+  session_id: string | null;
+  run_id: string | null;
+  input: string | null;
+  status: string;
+  result_json: string | null;
+  created_at: string;
+  completed_at: string | null;
+};
+
 const defaultDbPath = resolve(findWorkspaceRoot(), ".pet", "pet-agentd.sqlite");
+const DEFAULT_MEMORY_LIMIT = 1_000;
 const legacyTemplateAssistantMessages = [
   "我准备了一个音乐播放面板。当前走本地技能外壳，接入 Spotify / Apple Music / 本地媒体后会直接播放和管理队列。",
   "视频面板已准备好。这里可以承载 YouTube、Bilibili 或本地文件播放，并挂接字幕、摘要和笔记技能。",
@@ -165,7 +253,7 @@ export class PetStore {
 
   listMessages(sessionId: string): ChatMessage[] {
     const rows = this.db
-      .prepare("SELECT id, role, content, created_at, run_id, surface_json FROM messages WHERE session_id = ? ORDER BY created_at ASC, rowid ASC")
+      .prepare("SELECT id, role, content, created_at, run_id, surface_json, attachments_json FROM messages WHERE session_id = ? ORDER BY created_at ASC, rowid ASC")
       .all(sessionId) as MessageRow[];
 
     return rows.map((row) => ({
@@ -175,38 +263,387 @@ export class PetStore {
       createdAt: row.created_at,
       runId: row.run_id ?? undefined,
       surface: parseOptionalJson<SurfaceSpec>(row.surface_json),
+      attachments: parseOptionalJson<ChatMessage["attachments"]>(row.attachments_json),
     }));
   }
 
   saveMessage(sessionId: string, message: ChatMessage) {
     this.db
       .prepare(
-        "INSERT OR REPLACE INTO messages (id, session_id, role, content, created_at, run_id, surface_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT OR REPLACE INTO messages (id, session_id, role, content, created_at, run_id, surface_json, attachments_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
       )
-      .run(message.id, sessionId, message.role, message.content, message.createdAt, message.runId ?? null, message.surface ? JSON.stringify(message.surface) : null);
+      .run(
+        message.id,
+        sessionId,
+        message.role,
+        message.content,
+        message.createdAt,
+        message.runId ?? null,
+        message.surface ? JSON.stringify(message.surface) : null,
+        message.attachments ? JSON.stringify(message.attachments) : null,
+      );
     this.touchSession(sessionId, message.createdAt);
   }
 
   listMemories(): Memory[] {
+    const now = new Date().toISOString();
     const rows = this.db
-      .prepare("SELECT id, kind, scope, content, confidence, source, created_at FROM memories ORDER BY created_at DESC, rowid DESC")
-      .all() as MemoryRow[];
+      .prepare(
+        `
+          SELECT id, kind, scope, content, summary, confidence, source, source_type, source_id,
+                 visibility, pii_tags_json, created_at, updated_at, expires_at
+          FROM memories
+          WHERE expires_at IS NULL OR expires_at > ?
+          ORDER BY created_at DESC, rowid DESC
+        `,
+      )
+      .all(now) as MemoryRow[];
 
-    return rows.map((row) => ({
-      id: row.id,
-      kind: row.kind,
-      scope: row.scope,
-      content: row.content,
-      confidence: row.confidence,
-      source: row.source,
-      createdAt: row.created_at,
-    }));
+    return rows.map(toMemory);
+  }
+
+  queryMemories(query?: string, kinds?: Memory["kind"][], limit = 8): Memory[] {
+    const normalizedLimit = Math.max(1, Math.min(limit, 24));
+    const kindSet = new Set(kinds ?? []);
+    const filterKinds = (memory: Memory) => (kindSet.size ? kindSet.has(memory.kind) : true);
+
+    if (query?.trim()) {
+      const escaped = query
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((part) => part.replace(/["']/g, ""))
+        .join(" OR ");
+      try {
+        const rows = this.db
+          .prepare(
+            `
+              SELECT m.id, m.kind, m.scope, m.content, m.summary, m.confidence, m.source,
+                     m.source_type, m.source_id, m.visibility, m.pii_tags_json,
+                     m.created_at, m.updated_at, m.expires_at
+              FROM memories_fts f
+              JOIN memories m ON m.id = f.id
+              WHERE memories_fts MATCH ?
+                AND (m.expires_at IS NULL OR m.expires_at > ?)
+              ORDER BY rank
+              LIMIT ?
+            `,
+          )
+          .all(escaped || query.trim(), new Date().toISOString(), normalizedLimit * 2) as MemoryRow[];
+        const matches = rows.map(toMemory).filter(filterKinds).slice(0, normalizedLimit);
+        if (matches.length) return matches;
+      } catch {
+        // Fallback below if FTS is unavailable or query syntax is too broad.
+      }
+
+      const needle = query.trim().toLowerCase();
+      return this.listMemories()
+        .filter(filterKinds)
+        .filter((memory) => `${memory.content} ${memory.summary ?? ""}`.toLowerCase().includes(needle))
+        .slice(0, normalizedLimit);
+    }
+
+    return this.listMemories().filter(filterKinds).slice(0, normalizedLimit);
   }
 
   saveMemory(memory: Memory) {
+    const now = new Date().toISOString();
+    const existing = this.db
+      .prepare("SELECT id, created_at FROM memories WHERE kind = ? AND scope = ? AND lower(content) = lower(?) LIMIT 1")
+      .get(memory.kind, memory.scope, memory.content) as { id: string; created_at: string } | undefined;
+    const savedMemory: Memory = {
+      ...memory,
+      id: existing?.id ?? memory.id,
+      createdAt: existing?.created_at ?? memory.createdAt,
+      updatedAt: now,
+    };
     this.db
-      .prepare("INSERT OR REPLACE INTO memories (id, kind, scope, content, confidence, source, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-      .run(memory.id, memory.kind, memory.scope, memory.content, memory.confidence, memory.source, memory.createdAt);
+      .prepare(
+        `
+          INSERT OR REPLACE INTO memories (
+            id, kind, scope, content, summary, confidence, source, source_type, source_id,
+            visibility, pii_tags_json, created_at, updated_at, expires_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+      )
+      .run(
+        savedMemory.id,
+        savedMemory.kind,
+        savedMemory.scope,
+        savedMemory.content,
+        savedMemory.summary ?? null,
+        savedMemory.confidence,
+        savedMemory.source,
+        savedMemory.sourceType ?? savedMemory.source,
+        savedMemory.sourceId ?? null,
+        savedMemory.visibility ?? "local_only",
+        savedMemory.piiTags ? JSON.stringify(savedMemory.piiTags) : null,
+        savedMemory.createdAt,
+        savedMemory.updatedAt ?? now,
+        savedMemory.expiresAt ?? null,
+      );
+    this.indexMemory(savedMemory);
+    this.enforceMemoryLimit();
+  }
+
+  linkMemory(memoryId: string, sourceType: string, sourceId: string, now = new Date().toISOString()) {
+    this.db
+      .prepare("INSERT OR IGNORE INTO memory_links (memory_id, source_type, source_id, created_at) VALUES (?, ?, ?, ?)")
+      .run(memoryId, sourceType, sourceId, now);
+  }
+
+  getSessionSummary(sessionId: string): string | null {
+    const row = this.db
+      .prepare("SELECT summary FROM session_summaries WHERE session_id = ? ORDER BY updated_at DESC LIMIT 1")
+      .get(sessionId) as SessionSummaryTextRow | undefined;
+    return row?.summary ?? null;
+  }
+
+  saveSessionSummary(sessionId: string, summary: string, now = new Date().toISOString()) {
+    this.db
+      .prepare("INSERT OR REPLACE INTO session_summaries (session_id, summary, updated_at) VALUES (?, ?, ?)")
+      .run(sessionId, summary, now);
+  }
+
+  listToolRuns(limit = 40): ToolRunRecord[] {
+    const rows = this.db
+      .prepare(
+        `
+          SELECT id, session_id, run_id, tool_name, input_json, output_json, status, permission_id,
+                 exit_code, cwd, created_at, completed_at, summary, risk
+          FROM tool_runs
+          ORDER BY created_at DESC, rowid DESC
+          LIMIT ?
+        `,
+      )
+      .all(Math.max(1, Math.min(limit, 200))) as ToolRunRow[];
+    return rows.map(toToolRun);
+  }
+
+  getToolRunByPermission(permissionId: string): ToolRunRecord | null {
+    const row = this.db
+      .prepare(
+        `
+          SELECT id, session_id, run_id, tool_name, input_json, output_json, status, permission_id,
+                 exit_code, cwd, created_at, completed_at, summary, risk
+          FROM tool_runs
+          WHERE permission_id = ?
+          ORDER BY created_at DESC, rowid DESC
+          LIMIT 1
+        `,
+      )
+      .get(permissionId) as ToolRunRow | undefined;
+    return row ? toToolRun(row) : null;
+  }
+
+  saveToolRun(run: ToolRunRecord) {
+    this.db
+      .prepare(
+        `
+          INSERT OR REPLACE INTO tool_runs (
+            id, session_id, run_id, tool_name, input_json, output_json, status, permission_id,
+            exit_code, cwd, created_at, completed_at, summary, risk
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+      )
+      .run(
+        run.id,
+        run.sessionId ?? null,
+        run.runId ?? null,
+        run.toolName,
+        JSON.stringify(run.input ?? {}),
+        run.output === undefined ? null : JSON.stringify(run.output),
+        run.status,
+        run.permissionId ?? null,
+        run.exitCode ?? null,
+        run.cwd ?? null,
+        run.createdAt,
+        run.completedAt ?? null,
+        run.summary ?? null,
+        run.risk ?? null,
+      );
+  }
+
+  listPermissions(status?: PermissionRequest["status"], limit = 50): PermissionRequest[] {
+    const rows = (
+      status
+        ? this.db
+            .prepare(
+              `
+                SELECT id, session_id, run_id, tool_name, title, description, permission_level, risk,
+                       input_json, diff, command, cwd, status, created_at, resolved_at
+                FROM permissions_audit
+                WHERE status = ?
+                ORDER BY created_at DESC, rowid DESC
+                LIMIT ?
+              `,
+            )
+            .all(status, Math.max(1, Math.min(limit, 200)))
+        : this.db
+            .prepare(
+              `
+                SELECT id, session_id, run_id, tool_name, title, description, permission_level, risk,
+                       input_json, diff, command, cwd, status, created_at, resolved_at
+                FROM permissions_audit
+                ORDER BY created_at DESC, rowid DESC
+                LIMIT ?
+              `,
+            )
+            .all(Math.max(1, Math.min(limit, 200)))
+    ) as PermissionRow[];
+    return rows.map(toPermission);
+  }
+
+  getPermission(id: string): PermissionRequest | null {
+    const row = this.db
+      .prepare(
+        `
+          SELECT id, session_id, run_id, tool_name, title, description, permission_level, risk,
+                 input_json, diff, command, cwd, status, created_at, resolved_at
+          FROM permissions_audit
+          WHERE id = ?
+        `,
+      )
+      .get(id) as PermissionRow | undefined;
+    return row ? toPermission(row) : null;
+  }
+
+  savePermission(request: PermissionRequest) {
+    this.db
+      .prepare(
+        `
+          INSERT OR REPLACE INTO permissions_audit (
+            id, session_id, run_id, tool_name, title, description, permission_level, risk,
+            input_json, diff, command, cwd, status, created_at, resolved_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+      )
+      .run(
+        request.id,
+        request.sessionId ?? null,
+        request.runId ?? null,
+        request.toolName,
+        request.title,
+        request.description,
+        request.permissionLevel,
+        request.risk,
+        JSON.stringify(request.input ?? {}),
+        request.diff ?? null,
+        request.command ?? null,
+        request.cwd ?? null,
+        request.status,
+        request.createdAt,
+        request.resolvedAt ?? null,
+      );
+  }
+
+  resolvePermission(id: string, status: "approved" | "denied", now = new Date().toISOString()): PermissionRequest | null {
+    this.db.prepare("UPDATE permissions_audit SET status = ?, resolved_at = ? WHERE id = ?").run(status, now, id);
+    return this.getPermission(id);
+  }
+
+  upsertSkill(skill: SkillSummary, now = new Date().toISOString()) {
+    this.db
+      .prepare(
+        `
+          INSERT OR REPLACE INTO skills (
+            name, description, category, permissions_json, enabled, path, source,
+            version, tags_json, quarantined, last_used_at, updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+      )
+      .run(
+        skill.name,
+        skill.description,
+        skill.category,
+        JSON.stringify(skill.permissions ?? []),
+        skill.enabled ? 1 : 0,
+        skill.path ?? null,
+        skill.source ?? null,
+        skill.version ?? null,
+        skill.tags ? JSON.stringify(skill.tags) : null,
+        skill.quarantined ? 1 : 0,
+        skill.lastUsedAt ?? null,
+        now,
+      );
+  }
+
+  listSkills(): SkillSummary[] {
+    const rows = this.db
+      .prepare(
+        `
+          SELECT name, description, category, permissions_json, enabled, path, source,
+                 version, tags_json, quarantined, last_used_at, updated_at
+          FROM skills
+          ORDER BY quarantined ASC, enabled DESC, category ASC, name ASC
+        `,
+      )
+      .all() as SkillRow[];
+    return rows.map(toSkill);
+  }
+
+  getSkill(name: string): SkillSummary | null {
+    const row = this.db
+      .prepare(
+        `
+          SELECT name, description, category, permissions_json, enabled, path, source,
+                 version, tags_json, quarantined, last_used_at, updated_at
+          FROM skills
+          WHERE name = ?
+        `,
+      )
+      .get(name) as SkillRow | undefined;
+    return row ? toSkill(row) : null;
+  }
+
+  setSkillState(name: string, updates: { enabled?: boolean; quarantined?: boolean; lastUsedAt?: string }) {
+    const current = this.getSkill(name);
+    if (!current) return null;
+    const next: SkillSummary = {
+      ...current,
+      enabled: updates.enabled ?? current.enabled,
+      quarantined: updates.quarantined ?? current.quarantined,
+      lastUsedAt: updates.lastUsedAt ?? current.lastUsedAt,
+    };
+    this.upsertSkill(next);
+    return next;
+  }
+
+  saveSkillRun(params: {
+    id: string;
+    name: string;
+    sessionId?: string;
+    runId?: string;
+    input?: string;
+    status: string;
+    result?: unknown;
+    createdAt: string;
+    completedAt?: string;
+  }) {
+    this.db
+      .prepare(
+        `
+          INSERT OR REPLACE INTO skill_runs (
+            id, name, session_id, run_id, input, status, result_json, created_at, completed_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+      )
+      .run(
+        params.id,
+        params.name,
+        params.sessionId ?? null,
+        params.runId ?? null,
+        params.input ?? null,
+        params.status,
+        params.result === undefined ? null : JSON.stringify(params.result),
+        params.createdAt,
+        params.completedAt ?? null,
+      );
   }
 
   listSurfaces(sessionId: string): SurfaceSpec[] {
@@ -393,9 +830,30 @@ export class PetStore {
         kind TEXT NOT NULL,
         scope TEXT NOT NULL,
         content TEXT NOT NULL,
+        summary TEXT,
         confidence REAL NOT NULL,
         source TEXT NOT NULL,
-        created_at TEXT NOT NULL
+        source_type TEXT,
+        source_id TEXT,
+        visibility TEXT,
+        pii_tags_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT,
+        expires_at TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS memory_links (
+        memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+        source_type TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (memory_id, source_type, source_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS session_summaries (
+        session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+        summary TEXT NOT NULL,
+        updated_at TEXT NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS surfaces (
@@ -440,8 +898,95 @@ export class PetStore {
       );
 
       CREATE INDEX IF NOT EXISTS idx_social_exchanges_friend_created ON social_exchanges(friend_id, created_at);
+
+      CREATE TABLE IF NOT EXISTS tool_runs (
+        id TEXT PRIMARY KEY,
+        session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+        run_id TEXT,
+        tool_name TEXT NOT NULL,
+        input_json TEXT NOT NULL,
+        output_json TEXT,
+        status TEXT NOT NULL,
+        permission_id TEXT,
+        exit_code INTEGER,
+        cwd TEXT,
+        created_at TEXT NOT NULL,
+        completed_at TEXT,
+        summary TEXT,
+        risk TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_tool_runs_created ON tool_runs(created_at);
+      CREATE INDEX IF NOT EXISTS idx_tool_runs_session ON tool_runs(session_id, created_at);
+
+      CREATE TABLE IF NOT EXISTS permissions_audit (
+        id TEXT PRIMARY KEY,
+        session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+        run_id TEXT,
+        tool_name TEXT NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL,
+        permission_level TEXT NOT NULL,
+        risk TEXT NOT NULL,
+        input_json TEXT NOT NULL,
+        diff TEXT,
+        command TEXT,
+        cwd TEXT,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        resolved_at TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_permissions_status_created ON permissions_audit(status, created_at);
+
+      CREATE TABLE IF NOT EXISTS skills (
+        name TEXT PRIMARY KEY,
+        description TEXT NOT NULL,
+        category TEXT NOT NULL,
+        permissions_json TEXT NOT NULL,
+        enabled INTEGER NOT NULL,
+        path TEXT,
+        source TEXT,
+        version TEXT,
+        tags_json TEXT,
+        quarantined INTEGER NOT NULL DEFAULT 0,
+        last_used_at TEXT,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS skill_runs (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+        run_id TEXT,
+        input TEXT,
+        status TEXT NOT NULL,
+        result_json TEXT,
+        created_at TEXT NOT NULL,
+        completed_at TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS skill_quarantine (
+        name TEXT PRIMARY KEY,
+        source TEXT NOT NULL,
+        package_json TEXT NOT NULL,
+        scan_json TEXT,
+        created_at TEXT NOT NULL
+      );
     `);
     this.addColumnIfMissing("messages", "surface_json", "TEXT");
+    this.addColumnIfMissing("messages", "attachments_json", "TEXT");
+    this.addColumnIfMissing("memories", "summary", "TEXT");
+    this.addColumnIfMissing("memories", "source_type", "TEXT");
+    this.addColumnIfMissing("memories", "source_id", "TEXT");
+    this.addColumnIfMissing("memories", "visibility", "TEXT");
+    this.addColumnIfMissing("memories", "pii_tags_json", "TEXT");
+    this.addColumnIfMissing("memories", "updated_at", "TEXT");
+    this.addColumnIfMissing("memories", "expires_at", "TEXT");
+    this.ensureMemoryFts();
+    for (const memory of this.listMemories()) {
+      this.indexMemory(memory);
+    }
     this.db.prepare("UPDATE social_exchanges SET direction = ? WHERE direction = ?").run("local", "local-simulated");
   }
 
@@ -459,6 +1004,55 @@ export class PetStore {
     const rows = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
     if (rows.some((row) => row.name === column)) return;
     this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+
+  private ensureMemoryFts() {
+    try {
+      this.db.exec(`
+        CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+          id UNINDEXED,
+          content,
+          summary,
+          kind,
+          scope
+        );
+      `);
+    } catch {
+      // Some embedded SQLite builds may omit FTS5. Query code has a fallback.
+    }
+  }
+
+  private indexMemory(memory: Memory) {
+    try {
+      this.db.prepare("DELETE FROM memories_fts WHERE id = ?").run(memory.id);
+      this.db
+        .prepare("INSERT INTO memories_fts (id, content, summary, kind, scope) VALUES (?, ?, ?, ?, ?)")
+        .run(memory.id, memory.content, memory.summary ?? "", memory.kind, memory.scope);
+    } catch {
+      // FTS indexing is best-effort for older SQLite builds.
+    }
+  }
+
+  private enforceMemoryLimit() {
+    const configured = Number(process.env.PET_MEMORY_MAX_ITEMS);
+    const limit = Number.isFinite(configured) && configured > 0 ? Math.floor(configured) : DEFAULT_MEMORY_LIMIT;
+    this.db
+      .prepare(
+        `
+          DELETE FROM memories
+          WHERE id IN (
+            SELECT id FROM memories
+            ORDER BY COALESCE(updated_at, created_at) DESC, created_at DESC
+            LIMIT -1 OFFSET ?
+          )
+        `,
+      )
+      .run(limit);
+    try {
+      this.db.prepare("DELETE FROM memories_fts WHERE id NOT IN (SELECT id FROM memories)").run();
+    } catch {
+      // FTS cleanup is best-effort.
+    }
   }
 }
 
@@ -504,6 +1098,80 @@ function toSocialExchange(row: SocialExchangeRow): SocialExchangeRecord {
   };
 }
 
+function toMemory(row: MemoryRow): Memory {
+  return {
+    id: row.id,
+    kind: row.kind,
+    scope: row.scope,
+    content: row.content,
+    summary: row.summary ?? undefined,
+    confidence: row.confidence,
+    source: row.source,
+    sourceType: row.source_type ?? undefined,
+    sourceId: row.source_id ?? undefined,
+    visibility: row.visibility ?? undefined,
+    piiTags: parseOptionalJson<string[]>(row.pii_tags_json),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at ?? undefined,
+    expiresAt: row.expires_at ?? undefined,
+  };
+}
+
+function toToolRun(row: ToolRunRow): ToolRunRecord {
+  return {
+    id: row.id,
+    sessionId: row.session_id ?? undefined,
+    runId: row.run_id ?? undefined,
+    toolName: row.tool_name,
+    input: parseOptionalJson<Record<string, unknown>>(row.input_json) ?? {},
+    output: parseOptionalJson<unknown>(row.output_json),
+    status: row.status,
+    permissionId: row.permission_id ?? undefined,
+    exitCode: row.exit_code ?? undefined,
+    cwd: row.cwd ?? undefined,
+    createdAt: row.created_at,
+    completedAt: row.completed_at ?? undefined,
+    summary: row.summary ?? undefined,
+    risk: row.risk ?? undefined,
+  };
+}
+
+function toPermission(row: PermissionRow): PermissionRequest {
+  return {
+    id: row.id,
+    sessionId: row.session_id ?? undefined,
+    runId: row.run_id ?? undefined,
+    toolName: row.tool_name,
+    title: row.title,
+    description: row.description,
+    permissionLevel: row.permission_level,
+    risk: row.risk,
+    input: parseOptionalJson<Record<string, unknown>>(row.input_json) ?? {},
+    diff: row.diff ?? undefined,
+    command: row.command ?? undefined,
+    cwd: row.cwd ?? undefined,
+    status: row.status,
+    createdAt: row.created_at,
+    resolvedAt: row.resolved_at ?? undefined,
+  };
+}
+
+function toSkill(row: SkillRow): SkillSummary {
+  return {
+    name: row.name,
+    description: row.description,
+    category: row.category,
+    permissions: parseOptionalJson<string[]>(row.permissions_json) ?? [],
+    enabled: Boolean(row.enabled),
+    path: row.path ?? undefined,
+    source: row.source ?? undefined,
+    version: row.version ?? undefined,
+    tags: parseOptionalJson<string[]>(row.tags_json),
+    quarantined: Boolean(row.quarantined),
+    lastUsedAt: row.last_used_at ?? undefined,
+  };
+}
+
 function parseOptionalJson<T>(value?: string | null): T | undefined {
   if (!value) return undefined;
   try {
@@ -535,17 +1203,4 @@ function estimateTokens(text: string) {
   const words = text.replace(/[\u3400-\u9fff]/g, " ").match(/[A-Za-z0-9_'-]+/g)?.length ?? 0;
   const punctuation = text.match(/[^\sA-Za-z0-9_\u3400-\u9fff]/g)?.length ?? 0;
   return Math.max(1, Math.ceil(cjk * 1.1 + words * 1.35 + punctuation * 0.35));
-}
-
-function findWorkspaceRoot() {
-  let cursor = process.cwd();
-  for (let depth = 0; depth < 6; depth += 1) {
-    if (existsSync(resolve(cursor, "pnpm-workspace.yaml"))) {
-      return cursor;
-    }
-    const parent = resolve(cursor, "..");
-    if (parent === cursor) break;
-    cursor = parent;
-  }
-  return process.cwd();
 }

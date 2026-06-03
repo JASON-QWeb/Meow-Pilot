@@ -1,5 +1,7 @@
 .reference/
 .pet/
+.pet/ai-provider.json
+.pet/xiaomi-voice-provider.json
 node_modules/
 dist/
 build/

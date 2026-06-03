@@ -52,10 +52,20 @@ export type LocalRpcMethod =
   | "friend.add"
   | "social.exchange"
   | "memory.list"
+  | "memory.query"
+  | "memory.propose"
   | "memory.commit"
   | "memory.reject"
   | "skill.list"
+  | "skill.search"
+  | "skill.view"
   | "skill.run"
+  | "skill.manage"
+  | "tool.catalog"
+  | "tool.invoke"
+  | "tool.audit.list"
+  | "permission.list"
+  | "permission.resolve"
   | "usage.list"
   | "pet.image.cutout"
   | "provider.configure"
@@ -66,6 +76,8 @@ export type LocalEventName =
   | "agent.delta"
   | "chat.message"
   | "memory.proposal"
+  | "permission.request"
+  | "tool.run"
   | "pet.emotion"
   | "pet.activity"
   | "ui.surface.create"
@@ -133,6 +145,7 @@ export type SessionDeletePayload = {
 export type ChatSendParams = {
   sessionId: string;
   text: string;
+  attachments?: ChatAttachment[];
   source?: "text" | "voice" | "ui";
   surfaceAction?: {
     surfaceId: string;
@@ -259,8 +272,9 @@ export type SocialExchangePayload = {
 export type AgentLifecycleEvent = {
   sessionId: string;
   runId: string;
-  phase: "start" | "end" | "error";
+  phase: "start" | "step" | "waiting_permission" | "end" | "error";
   message?: string;
+  toolName?: string;
 };
 
 export type AgentDeltaEvent = {
@@ -279,9 +293,18 @@ export type ChatMessage = {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
+  attachments?: ChatAttachment[];
   createdAt: string;
   runId?: string;
   surface?: SurfaceSpec;
+};
+
+export type ChatAttachment = {
+  id: string;
+  kind: "image";
+  dataUrl: string;
+  mimeType: "image/png" | "image/jpeg" | "image/webp";
+  name?: string;
 };
 
 export type PetEmotion =
@@ -450,9 +473,16 @@ export type Memory = {
   kind: "user_profile" | "pet_note" | "semantic" | "episodic" | "procedural" | "social";
   scope: "private" | "social" | "shared" | "system";
   content: string;
+  summary?: string;
   confidence: number;
   source: "chat" | "tool" | "calendar" | "import" | "friend" | "skill";
+  sourceType?: "chat" | "message" | "tool" | "calendar" | "import" | "friend" | "skill" | "manual";
+  sourceId?: string;
+  visibility?: "local_only" | "sync_encrypted" | "shareable";
+  piiTags?: string[];
   createdAt: string;
+  updatedAt?: string;
+  expiresAt?: string;
 };
 
 export type MemoryProposalEvent = {
@@ -467,6 +497,168 @@ export type SkillSummary = {
   permissions: string[];
   enabled: boolean;
   path?: string;
+  source?: "workspace" | "project" | "user" | "managed" | "bundled" | "friend" | "market";
+  version?: string;
+  tags?: string[];
+  quarantined?: boolean;
+  lastUsedAt?: string;
+};
+
+export type ToolPermissionLevel = "read" | "confirm" | "dangerous" | "forbidden";
+
+export type ToolSummary = {
+  name: string;
+  description: string;
+  category:
+    | "terminal"
+    | "file"
+    | "memory"
+    | "skill"
+    | "surface"
+    | "web"
+    | "calendar"
+    | "task"
+    | "media"
+    | "social"
+    | "clipboard"
+    | "notification"
+    | "browser"
+    | "system"
+    | "mcp"
+    | "agent";
+  permissionLevel: ToolPermissionLevel;
+  inputSchema?: Record<string, unknown>;
+};
+
+export type ToolCatalogPayload = {
+  tools: ToolSummary[];
+};
+
+export type ToolInvokeParams = {
+  name: string;
+  input?: Record<string, unknown>;
+  sessionId?: string;
+  runId?: string;
+  source?: "agent" | "ui" | "skill";
+};
+
+export type ToolRunStatus = "success" | "failed" | "pending_permission" | "denied";
+
+export type ToolRunRecord = {
+  id: string;
+  sessionId?: string;
+  runId?: string;
+  toolName: string;
+  input: Record<string, unknown>;
+  output?: unknown;
+  status: ToolRunStatus;
+  permissionId?: string;
+  exitCode?: number;
+  cwd?: string;
+  createdAt: string;
+  completedAt?: string;
+  summary?: string;
+  risk?: string;
+};
+
+export type ToolInvokePayload = {
+  run: ToolRunRecord;
+  result?: unknown;
+};
+
+export type ToolAuditListPayload = {
+  runs: ToolRunRecord[];
+};
+
+export type ToolRunEvent = {
+  run: ToolRunRecord;
+};
+
+export type PermissionRequest = {
+  id: string;
+  sessionId?: string;
+  runId?: string;
+  toolName: string;
+  title: string;
+  description: string;
+  permissionLevel: Exclude<ToolPermissionLevel, "read" | "forbidden">;
+  risk: string;
+  input: Record<string, unknown>;
+  diff?: string;
+  command?: string;
+  cwd?: string;
+  status: "pending" | "approved" | "denied";
+  createdAt: string;
+  resolvedAt?: string;
+};
+
+export type PermissionRequestEvent = {
+  request: PermissionRequest;
+};
+
+export type PermissionListPayload = {
+  requests: PermissionRequest[];
+};
+
+export type PermissionResolveParams = {
+  permissionId: string;
+  approved: boolean;
+};
+
+export type PermissionResolvePayload = {
+  request: PermissionRequest;
+  run?: ToolRunRecord;
+  result?: unknown;
+};
+
+export type MemoryQueryParams = {
+  query?: string;
+  kinds?: Memory["kind"][];
+  limit?: number;
+};
+
+export type MemoryQueryPayload = {
+  memories: Memory[];
+};
+
+export type MemoryProposeParams = {
+  sessionId?: string;
+  content: string;
+  kind?: Memory["kind"];
+  scope?: Memory["scope"];
+  source?: Memory["source"];
+  confidence?: number;
+};
+
+export type MemoryProposePayload = {
+  proposal: Memory;
+};
+
+export type SkillSearchParams = {
+  query?: string;
+  limit?: number;
+};
+
+export type SkillSearchPayload = {
+  skills: SkillSummary[];
+};
+
+export type SkillViewParams = {
+  name: string;
+};
+
+export type SkillViewPayload = {
+  skill: SkillSummary;
+  content: string;
+};
+
+export type SkillManageParams = {
+  action: "enable" | "disable" | "quarantine";
+  name: string;
+};
+
+export type SkillManagePayload = {
+  skill: SkillSummary;
 };
 
 export type AiProviderId = "openai" | "anthropic" | "google" | "xai" | "deepseek" | "openrouter" | "openai-compatible";

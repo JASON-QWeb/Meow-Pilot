@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Brain, Check, Cpu, Heart, KeyRound, Mic2, PackagePlus, RefreshCw, Save, Send, Settings2, Shield, Sparkles, X, Zap } from "lucide-react";
+import { Brain, Check, Cpu, FileText, Heart, KeyRound, Mic2, PackagePlus, RefreshCw, Save, Send, Settings2, Shield, Sparkles, SquareTerminal, X, Zap } from "lucide-react";
 import { PetdexSprite } from "../pet/PetdexSprite";
 import { getPetdexTemplate, pickFriendPetdexTemplate } from "../pet/petdexCatalog";
 import type { PetProfile } from "../pet/petProfile";
@@ -9,15 +9,17 @@ import type {
   AiProviderId,
   FriendSummary,
   Memory,
+  PermissionRequest,
   ProviderConfigureParams,
   ProviderSummary,
   SkillSummary,
   SocialExchangeRecord,
+  ToolRunRecord,
   VoiceConfigureParams,
 } from "@pet/protocol";
 
 type RuntimeSidePanelProps = {
-  view?: "friends" | "settings" | "memory" | "skills";
+  view?: "friends" | "settings" | "memory" | "skills" | "tools";
   petProfile?: PetProfile;
   memories: Memory[];
   memoryProposal: Memory | null;
@@ -26,9 +28,12 @@ type RuntimeSidePanelProps = {
   account: AccountProfile | null;
   friends: FriendSummary[];
   latestExchange: SocialExchangeRecord | null;
+  pendingPermissions?: PermissionRequest[];
+  toolRuns?: ToolRunRecord[];
   onCommitMemory: () => void | Promise<void>;
   onRejectMemory: () => void | Promise<void>;
   onRunSkill: (name: string) => void | Promise<void>;
+  onResolvePermission?: (permissionId: string, approved: boolean) => unknown | Promise<unknown>;
   onSignIn: (displayName: string) => void | Promise<void>;
   onAddFriend: (handle: string) => void | Promise<void>;
   onExchangeFriend: (friendId: string) => void | Promise<void>;
@@ -292,8 +297,11 @@ export function RuntimeSidePanel({
   account,
   friends,
   latestExchange,
+  pendingPermissions = [],
+  toolRuns = [],
   onCommitMemory,
   onRejectMemory,
+  onResolvePermission,
   onSignIn,
   onAddFriend,
   onExchangeFriend,
@@ -456,6 +464,140 @@ export function RuntimeSidePanel({
     } finally {
       setSavingMemorySection(null);
     }
+  }
+
+  if (view === "tools") {
+    const dangerousCount = pendingPermissions.filter((permission) => permission.permissionLevel === "dangerous").length;
+    return (
+      <section className="toolsPage" aria-label="工具与权限">
+        <section className="toolsHero">
+          <div className="panelTitle">
+            <span className="titleIcon blue">
+              <SquareTerminal size={24} />
+            </span>
+            <div>
+              <p className="eyebrow">Agent runtime</p>
+              <h2>工具与权限</h2>
+            </div>
+          </div>
+          <div className="toolStats">
+            <article>
+              <span>待确认</span>
+              <strong>{pendingPermissions.length}</strong>
+            </article>
+            <article>
+              <span>高风险</span>
+              <strong>{dangerousCount}</strong>
+            </article>
+            <article>
+              <span>审计记录</span>
+              <strong>{toolRuns.length}</strong>
+            </article>
+          </div>
+        </section>
+
+        <section className="permissionSection" aria-label="待确认权限">
+          <div className="sectionHeaderRow">
+            <div>
+              <p className="eyebrow">Approval queue</p>
+              <h3>待确认操作</h3>
+            </div>
+            <span>{pendingPermissions.length} 项</span>
+          </div>
+          {pendingPermissions.length ? (
+            <div className="permissionGrid">
+              {pendingPermissions.map((permission) => (
+                <article className={`permissionCard ${permission.permissionLevel}`} key={permission.id}>
+                  <header>
+                    <div>
+                      <span className="permissionLevel">{permission.permissionLevel}</span>
+                      <h4>{permission.title}</h4>
+                    </div>
+                    <strong>{permission.toolName}</strong>
+                  </header>
+                  <p>{permission.description}</p>
+                  <dl className="permissionMeta">
+                    <div>
+                      <dt>风险</dt>
+                      <dd>{permission.risk}</dd>
+                    </div>
+                    {permission.cwd ? (
+                      <div>
+                        <dt>CWD</dt>
+                        <dd>{permission.cwd}</dd>
+                      </div>
+                    ) : null}
+                  </dl>
+                  {permission.command ? (
+                    <pre className="commandBlock" aria-label="待执行命令">{permission.command}</pre>
+                  ) : null}
+                  {permission.diff ? (
+                    <pre className="diffBlock" aria-label="文件变更 diff">{permission.diff}</pre>
+                  ) : (
+                    <pre className="inputBlock" aria-label="工具输入">{formatToolInput(permission.input)}</pre>
+                  )}
+                  <div className="permissionActions">
+                    <button type="button" className="approveButton" disabled={!onResolvePermission} onClick={() => void onResolvePermission?.(permission.id, true)}>
+                      <Check size={15} />
+                      批准
+                    </button>
+                    <button type="button" className="denyButton" disabled={!onResolvePermission} onClick={() => void onResolvePermission?.(permission.id, false)}>
+                      <X size={15} />
+                      拒绝
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <article className="emptyPermissionState">
+              <Shield size={22} />
+              <div>
+                <strong>当前没有待确认操作</strong>
+                <p>终端写入、文件变更、联网和 Skill 管理会在这里等待你批准。</p>
+              </div>
+            </article>
+          )}
+        </section>
+
+        <section className="toolAuditSection" aria-label="工具审计时间线">
+          <div className="sectionHeaderRow">
+            <div>
+              <p className="eyebrow">Audit timeline</p>
+              <h3>最近工具运行</h3>
+            </div>
+            <span>{toolRuns.length} 条</span>
+          </div>
+          <div className="toolAuditList">
+            {toolRuns.length ? (
+              toolRuns.map((run) => (
+                <article className={`toolAuditItem status-${run.status}`} key={run.id}>
+                  <span className="toolAuditIcon">
+                    {run.toolName.startsWith("file_") ? <FileText size={16} /> : <SquareTerminal size={16} />}
+                  </span>
+                  <div>
+                    <header>
+                      <strong>{run.toolName}</strong>
+                      <span>{toolRunStatusLabel(run.status)}</span>
+                    </header>
+                    <p>{run.summary ?? toolRunPreview(run.output) ?? toolRunPreview(run.input)}</p>
+                    <small>{formatRuntimeTime(run.completedAt ?? run.createdAt)}{run.cwd ? ` · ${run.cwd}` : ""}</small>
+                  </div>
+                </article>
+              ))
+            ) : (
+              <article className="emptyPermissionState compact">
+                <Shield size={20} />
+                <div>
+                  <strong>还没有工具运行记录</strong>
+                  <p>Agent 使用工具后，这里会显示结果、状态和审计摘要。</p>
+                </div>
+              </article>
+            )}
+          </div>
+        </section>
+      </section>
+    );
   }
 
   if (view === "friends") {
@@ -962,6 +1104,45 @@ function groupSkills(runtimeSkills: SkillSummary[], installedSkills: SkillSummar
     .filter((group) => group.items.length);
 
   return { groups, total: merged.length };
+}
+
+function formatToolInput(input: Record<string, unknown>) {
+  try {
+    return JSON.stringify(input, null, 2);
+  } catch {
+    return String(input);
+  }
+}
+
+function toolRunStatusLabel(status: ToolRunRecord["status"]) {
+  const labels: Record<ToolRunRecord["status"], string> = {
+    success: "成功",
+    failed: "失败",
+    pending_permission: "待确认",
+    denied: "已拒绝",
+  };
+  return labels[status];
+}
+
+function toolRunPreview(value: unknown) {
+  if (value === undefined || value === null) return "";
+  if (typeof value === "string") return value.slice(0, 180);
+  try {
+    return JSON.stringify(value).slice(0, 180);
+  } catch {
+    return String(value).slice(0, 180);
+  }
+}
+
+function formatRuntimeTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }
 
 function offeredSkillsForFriend(friend: FriendCard) {

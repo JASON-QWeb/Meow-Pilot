@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import type { ChatMessage } from "@pet/protocol";
+import type { ChatMessage, Memory } from "@pet/protocol";
 import { PetStore } from "./storage";
 
 test("PetStore persists sessions, messages, and derives runtime stats from the database", () => {
@@ -60,6 +60,39 @@ test("PetStore persists sessions, messages, and derives runtime stats from the d
     } else {
       process.env.PET_RUNTIME_STATS_PATH = previousOverride;
     }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("PetStore deduplicates memories and hides expired memories", () => {
+  const dir = mkdtempSync(join(tmpdir(), "pet-store-memory-"));
+  const dbPath = join(dir, "pet-agentd.sqlite");
+
+  try {
+    const store = new PetStore(dbPath);
+    const base: Memory = {
+      id: "mem_one",
+      kind: "semantic",
+      scope: "private",
+      content: "用户希望默认使用中文文档。",
+      confidence: 0.9,
+      source: "chat",
+      createdAt: "2026-06-01T00:00:00.000Z",
+    };
+    store.saveMemory(base);
+    store.saveMemory({ ...base, id: "mem_duplicate", confidence: 0.95 });
+    store.saveMemory({
+      ...base,
+      id: "mem_expired",
+      content: "这是一条已经过期的记忆。",
+      expiresAt: "2020-01-01T00:00:00.000Z",
+    });
+
+    const memories = store.listMemories();
+    assert.equal(memories.filter((memory) => memory.content === base.content).length, 1);
+    assert.equal(memories.some((memory) => memory.id === "mem_expired"), false);
+    assert.equal(store.queryMemories("已经过期", undefined, 5).length, 0);
+  } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });

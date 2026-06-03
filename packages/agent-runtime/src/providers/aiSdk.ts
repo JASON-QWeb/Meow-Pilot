@@ -7,14 +7,19 @@ import { createXai } from "@ai-sdk/xai";
 import {
   experimental_generateSpeech as generateSpeech,
   experimental_transcribe as transcribe,
+  generateObject,
+  jsonSchema,
   streamText,
   type LanguageModel,
+  type ModelMessage,
   type SpeechModel,
+  type ToolSet,
   type TranscriptionModel,
 } from "ai";
 import type { ChatMessage } from "@pet/protocol";
 import {
   loadAiConfig,
+  loadAiConfigCandidates,
   loadAiSpeechConfig,
   loadAiTranscriptionConfig,
   type AiProviderConfig,
@@ -33,6 +38,40 @@ export type AiSdkTextStream = {
   model: string;
   provider: AiProviderConfig["provider"];
   source: "ai-sdk";
+};
+
+export type AiSdkToolCall = {
+  toolCallId: string;
+  toolName: string;
+  input: Record<string, unknown>;
+};
+
+export type AiSdkAgentStep = {
+  text: string;
+  toolCalls: AiSdkToolCall[];
+  model: string;
+  provider: AiProviderConfig["provider"];
+  source: "ai-sdk";
+};
+
+export type AgentPlan = {
+  goal: string;
+  steps: Array<{
+    id: string;
+    title: string;
+    status: "pending" | "in_progress" | "completed";
+    requiresTool?: boolean;
+  }>;
+};
+
+export type AgentReflection = {
+  complete: boolean;
+  issues: string[];
+  finalAnswer?: string;
+};
+
+export type SessionSummaryObject = {
+  summary: string;
 };
 
 export type AiSdkTranscription = {
@@ -72,29 +111,33 @@ const SYSTEM_PROMPT = `你是一个产品化桌面宠物 Agent 的大脑。回�
 图表规则：用户给了分类+数值时，用 pie-chart/table/metric-row 这类真实组件，不要用 emoji 或“图表占位”文本模拟图表。
 媒体规则：没有明确可播放 URL 时，不要说已经能播放；可以生成播放器占位并提示用户选择本地文件或提供合法来源链接。不要承诺下载、抓取或绕过版权平台。
 
-输出格式：需要 UI 时只输出一个 pet-surface fenced JSON block，可以在 answer 中放一句自然语言说明。surface 使用扁平组件列表和 root，类似 A2UI 的 adjacency list；不要输出实现代码。
+需要 UI 时优先调用 surface_render 或 media_prepare 这类结构化工具，不要输出 React/Vue/HTML/CSS/JSX/TSX 代码，也不要用自由文本模拟组件。普通问答直接回答文本。`;
 
-\`\`\`pet-surface
-{
-  "answer": "我把结果整理成可交互卡片，你可以直接继续操作。",
-  "surface": {
-    "title": "卡片标题",
-    "type": "panel",
-    "intent": "chat",
-    "root": "root",
-    "components": [
-      {"id": "root", "kind": "stack", "direction": "column", "gap": "md", "children": ["summary", "items"]},
-      {"id": "summary", "kind": "text", "variant": "body", "text": "简短说明"},
-      {"id": "items", "kind": "list", "items": [{"id": "i1", "title": "下一步", "description": "可点击继续", "actionId": "refine"}]}
-    ],
-    "actions": [
-      {"id": "refine", "label": "继续细化", "style": "primary", "icon": "plus"}
-    ]
+export async function streamAgentStepWithAiSdk(params: {
+  instructions: string;
+  messages: ModelMessage[];
+  tools?: ToolSet;
+  abortSignal?: AbortSignal;
+  onChunk?: (chunk: string) => void;
+}): Promise<AiSdkAgentStep | null> {
+  const configs = loadAiConfigCandidates();
+  if (!configs.length) return null;
+
+  let lastError: unknown;
+  for (const config of configs) {
+    let emitted = false;
+    try {
+      return await runAgentStep(config, params, () => {
+        emitted = true;
+      });
+    } catch (error) {
+      lastError = error;
+      if (params.abortSignal?.aborted || emitted) throw error;
+    }
   }
-}
-\`\`\`
 
-普通问答也可以直接回答文本；但不要把 UI 当作代码发给用户。`;
+  throw lastError instanceof Error ? lastError : new Error("All configured AI providers failed.");
+}
 
 export async function streamWithAiSdk(userText: string, history: ChatMessage[], abortSignal?: AbortSignal): Promise<AiSdkTextStream | null> {
   const config = loadAiConfig();
@@ -104,8 +147,8 @@ export async function streamWithAiSdk(userText: string, history: ChatMessage[], 
     model: createLanguageModel(config),
     system: SYSTEM_PROMPT,
     messages: toModelMessages(userText, history),
-    maxOutputTokens: 2048,
-    temperature: 0.7,
+    maxOutputTokens: maxOutputTokensFor(config),
+    temperature: temperatureFor(config),
     abortSignal,
   });
 
@@ -133,6 +176,173 @@ export async function generateWithAiSdk(userText: string, history: ChatMessage[]
     text: trimmed,
     model: stream.model,
     provider: stream.provider,
+    source: "ai-sdk",
+  };
+}
+
+export async function generateAgentPlanWithAiSdk(params: {
+  userText: string;
+  context: string;
+  abortSignal?: AbortSignal;
+}): Promise<AgentPlan | null> {
+  return generateStructuredWithFallback<AgentPlan>({
+    schemaName: "agent_plan",
+    schemaDescription: "显式任务计划，供本地 Agent 执行和修订。",
+    schema: jsonSchema<AgentPlan>({
+      type: "object",
+      properties: {
+        goal: { type: "string" },
+        steps: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "string" },
+              title: { type: "string" },
+              status: { type: "string", enum: ["pending", "in_progress", "completed"] },
+              requiresTool: { type: "boolean" },
+            },
+            required: ["id", "title", "status"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["goal", "steps"],
+      additionalProperties: false,
+    }),
+    system: "你是 Meow Pilot 的计划器。输出 2-6 个短步骤，第一步通常为 in_progress。只规划，不执行。",
+    prompt: [`上下文：`, params.context.slice(0, 8_000), "", "用户请求：", params.userText].join("\n"),
+    abortSignal: params.abortSignal,
+  });
+}
+
+export async function generateAgentReflectionWithAiSdk(params: {
+  userText: string;
+  finalText: string;
+  abortSignal?: AbortSignal;
+}): Promise<AgentReflection | null> {
+  return generateStructuredWithFallback<AgentReflection>({
+    schemaName: "agent_reflection",
+    schemaDescription: "最终回答质量检查。",
+    schema: jsonSchema<AgentReflection>({
+      type: "object",
+      properties: {
+        complete: { type: "boolean" },
+        issues: { type: "array", items: { type: "string" } },
+        finalAnswer: { type: "string" },
+      },
+      required: ["complete", "issues"],
+      additionalProperties: false,
+    }),
+    system: "你是 Meow Pilot 的最终检查器。判断回答是否充分回应用户请求；只指出真实缺口，不追求冗长。",
+    prompt: [`用户请求：${params.userText}`, "", `最终回答：${params.finalText}`].join("\n"),
+    abortSignal: params.abortSignal,
+  });
+}
+
+export async function generateSessionSummaryWithAiSdk(messages: ChatMessage[], abortSignal?: AbortSignal): Promise<string | null> {
+  const transcript = messages
+    .filter((message) => message.role !== "system")
+    .slice(-32)
+    .map((message) => `${message.role === "user" ? "用户" : "助手"}：${message.content.replace(/\s+/g, " ").slice(0, 600)}`)
+    .join("\n");
+  if (!transcript.trim()) return null;
+
+  const result = await generateStructuredWithFallback<SessionSummaryObject>({
+    schemaName: "session_summary",
+    schemaDescription: "中文会话摘要。",
+    schema: jsonSchema<SessionSummaryObject>({
+      type: "object",
+      properties: {
+        summary: { type: "string" },
+      },
+      required: ["summary"],
+      additionalProperties: false,
+    }),
+    system: "你是 Meow Pilot 的会话摘要器。用中文总结用户目标、已做决定、关键上下文和未完成事项；不要逐条复制原文。",
+    prompt: transcript,
+    abortSignal,
+  });
+  return result?.summary?.trim() || null;
+}
+
+async function generateStructuredWithFallback<T>(params: {
+  schemaName: string;
+  schemaDescription: string;
+  schema: ReturnType<typeof jsonSchema<T>>;
+  system: string;
+  prompt: string;
+  abortSignal?: AbortSignal;
+}): Promise<T | null> {
+  const configs = loadAiConfigCandidates();
+  if (!configs.length) return null;
+
+  let lastError: unknown;
+  for (const config of configs) {
+    try {
+      const result = await generateObject({
+        model: createLanguageModel(config),
+        schema: params.schema,
+        schemaName: params.schemaName,
+        schemaDescription: params.schemaDescription,
+        system: params.system,
+        prompt: params.prompt,
+        maxOutputTokens: 900,
+        temperature: 0,
+        abortSignal: params.abortSignal,
+      });
+      return result.object as T;
+    } catch (error) {
+      lastError = error;
+      if (params.abortSignal?.aborted) throw error;
+    }
+  }
+
+  if (lastError) throw lastError instanceof Error ? lastError : new Error("Structured generation failed.");
+  return null;
+}
+
+async function runAgentStep(
+  config: AiProviderConfig,
+  params: {
+    instructions: string;
+    messages: ModelMessage[];
+    tools?: ToolSet;
+    abortSignal?: AbortSignal;
+    onChunk?: (chunk: string) => void;
+  },
+  markEmitted: () => void,
+): Promise<AiSdkAgentStep> {
+  const result = streamText({
+    model: createLanguageModel(config),
+    system: params.instructions,
+    messages: params.messages,
+    tools: params.tools,
+    maxOutputTokens: maxOutputTokensFor(config),
+    temperature: temperatureFor(config),
+    abortSignal: params.abortSignal,
+  });
+
+  let text = "";
+  for await (const chunk of result.textStream) {
+    text += chunk;
+    markEmitted();
+    params.onChunk?.(chunk);
+  }
+
+  const toolCalls = (await result.toolCalls)
+    .filter((call) => !call.invalid)
+    .map((call) => ({
+      toolCallId: call.toolCallId,
+      toolName: String(call.toolName),
+      input: isRecord(call.input) ? call.input : {},
+    }));
+
+  return {
+    text,
+    toolCalls,
+    model: config.model,
+    provider: config.provider,
     source: "ai-sdk",
   };
 }
@@ -246,6 +456,53 @@ function toModelMessages(userText: string, history: ChatMessage[]) {
       content: userText,
     },
   ];
+}
+
+export function chatMessagesToModelMessages(history: ChatMessage[], userText?: string, attachments: ChatMessage["attachments"] = []): ModelMessage[] {
+  const messages: ModelMessage[] = history
+    .filter((message) => message.role !== "system")
+    .map((message) => toModelMessage(message));
+
+  if (userText !== undefined) {
+    messages.push(toUserModelMessage(userText, attachments));
+  }
+  return messages;
+}
+
+function toModelMessage(message: ChatMessage): ModelMessage {
+  if (message.role === "assistant") return { role: "assistant", content: message.content };
+  return toUserModelMessage(message.content, message.attachments);
+}
+
+function toUserModelMessage(text: string, attachments: ChatMessage["attachments"] = []): ModelMessage {
+  if (!attachments?.length) return { role: "user", content: text };
+  return {
+    role: "user",
+    content: [
+      { type: "text", text },
+      ...attachments.map((attachment) => ({
+        type: "image" as const,
+        image: attachment.dataUrl,
+        mediaType: attachment.mimeType,
+      })),
+    ],
+  };
+}
+
+function maxOutputTokensFor(config: AiProviderConfig) {
+  const configured = Number(process.env.PET_AI_MAX_OUTPUT_TOKENS);
+  if (Number.isFinite(configured) && configured > 0) return Math.floor(configured);
+  if (/gpt-4\.1|gpt-4o|claude|gemini-2\.5|grok-3/i.test(config.model)) return 4096;
+  return 2048;
+}
+
+function temperatureFor(_config: AiProviderConfig) {
+  const configured = Number(process.env.PET_AI_TEMPERATURE);
+  return Number.isFinite(configured) ? Math.max(0, Math.min(2, configured)) : 0.4;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function createTranscriptionModel(config: AiProviderConfig): TranscriptionModel {

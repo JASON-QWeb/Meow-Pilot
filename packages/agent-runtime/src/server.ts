@@ -9,7 +9,6 @@ import {
   type ChatMessageEvent,
   type ChatSendParams,
   type ChatSendPayload,
-  type ComponentNode,
   type FriendAddParams,
   type FriendAddPayload,
   type FriendListPayload,
@@ -17,7 +16,15 @@ import {
   type LocalEventName,
   type LocalRpcMethod,
   type Memory,
-  type MemoryProposalEvent,
+  type MemoryProposeParams,
+  type MemoryProposePayload,
+  type MemoryQueryParams,
+  type MemoryQueryPayload,
+  type PermissionListPayload,
+  type PermissionRequest,
+  type PermissionRequestEvent,
+  type PermissionResolveParams,
+  type PermissionResolvePayload,
   type PetActivityEvent,
   type PetEmotionEvent,
   type PetImageCutoutParams,
@@ -34,10 +41,20 @@ import {
   type SessionListPayload,
   type SessionResumeParams,
   type SessionResumePayload,
+  type SkillManageParams,
+  type SkillManagePayload,
+  type SkillSearchParams,
+  type SkillSearchPayload,
   type SocialExchangeParams,
   type SocialExchangePayload,
   type SurfaceEvent,
   type SurfaceSpec,
+  type ToolAuditListPayload,
+  type ToolCatalogPayload,
+  type ToolInvokeParams,
+  type ToolInvokePayload,
+  type ToolRunEvent,
+  type ToolRunRecord,
   type TokenUsageListPayload,
   type VoiceSpeakParams,
   type VoiceSpeakPayload,
@@ -46,18 +63,34 @@ import {
   type VoiceTranscribePayload,
   isRpcRequest,
 } from "@pet/protocol";
-import { listProviders, skills } from "./catalog";
+import { listProviders } from "./catalog";
 import { saveLocalAiConfig, saveLocalXiaomiVoiceConfig } from "./apiConfig";
-import { streamWithAiSdk, synthesizeWithAiSdk, transcribeWithAiSdk } from "./providers/aiSdk";
+import { synthesizeWithAiSdk, transcribeWithAiSdk } from "./providers/aiSdk";
 import { cutoutPetImageWithConfiguredAi, PetImageCutoutError } from "./providers/openaiImageCutout";
 import { synthesizeWithXiaomi, transcribeWithXiaomi } from "./providers/xiaomi";
 import { PetStore, type RuntimeSession } from "./storage";
-import { parseAgentSurfaceResponse } from "./surfaceProtocol";
 import { listTokenUsage } from "./usage";
+import { AgentKernel, type AgentContinuation, type AgentToolResult } from "./kernel/AgentKernel";
+import { ContextBuilder } from "./kernel/ContextBuilder";
+import { MemoryService } from "./memory/MemoryService";
+import { SkillService } from "./skills/SkillService";
+import { ToolRegistry } from "./tools/ToolRegistry";
+import { logger } from "./logger";
+import { loadConfiguredMcpTools } from "./mcp/McpBridge";
+import {
+  createChartResponse,
+  createInlineMediaResponse,
+  createInlineMediaSurface,
+  createWeatherResponse,
+  type DirectAgentResponse,
+} from "./directResponses";
 
 const PORT = Number(process.env.PET_AGENTD_PORT ?? 4747);
 const HOST = process.env.PET_AGENTD_HOST ?? "127.0.0.1";
 const clients = new Map<WebSocket, ClientState>();
+const activeSessionRuns = new Map<string, { runId: string; controller: AbortController }>();
+const pendingAgentContinuations = new Map<string, PendingAgentContinuation>();
+const permissionToContinuation = new Map<string, string>();
 
 type ClientState = {
   seq: number;
@@ -66,11 +99,23 @@ type ClientState = {
 
 type AgentRunOptions = {
   userMessageId?: string;
+  attachments?: ChatMessage["attachments"];
   source?: ChatSendParams["source"];
   surfaceAction?: ChatSendParams["surfaceAction"];
 };
 
+type PendingAgentContinuation = {
+  continuation: AgentContinuation;
+  resolvedResults: Map<string, AgentToolResult>;
+};
+
 const store = new PetStore();
+const memoryService = new MemoryService(store);
+const skillService = new SkillService(store);
+skillService.refresh();
+const toolRegistry = new ToolRegistry(store, memoryService, skillService);
+void loadConfiguredMcpTools(toolRegistry);
+const contextBuilder = new ContextBuilder(store, memoryService, skillService, () => toolRegistry.catalog());
 
 const methods: LocalRpcMethod[] = [
   "hello",
@@ -90,10 +135,20 @@ const methods: LocalRpcMethod[] = [
   "friend.add",
   "social.exchange",
   "memory.list",
+  "memory.query",
+  "memory.propose",
   "memory.commit",
   "memory.reject",
   "skill.list",
+  "skill.search",
+  "skill.view",
   "skill.run",
+  "skill.manage",
+  "tool.catalog",
+  "tool.invoke",
+  "tool.audit.list",
+  "permission.list",
+  "permission.resolve",
   "usage.list",
   "pet.image.cutout",
   "provider.configure",
@@ -105,6 +160,8 @@ const events: LocalEventName[] = [
   "agent.delta",
   "chat.message",
   "memory.proposal",
+  "permission.request",
+  "tool.run",
   "pet.emotion",
   "pet.activity",
   "ui.surface.create",
@@ -129,7 +186,7 @@ wss.on("connection", (socket) => {
 });
 
 wss.on("listening", () => {
-  console.log(`[pet-agentd] listening on ws://${HOST}:${PORT}`);
+  logger.info("agentd.listening", { host: HOST, port: PORT });
 });
 
 async function handleRawFrame(socket: WebSocket, state: ClientState, raw: string) {
@@ -159,13 +216,18 @@ async function handleRawFrame(socket: WebSocket, state: ClientState, raw: string
   try {
     await handleRequest(socket, state, frame);
   } catch (error) {
+    logger.error("rpc.failed", {
+      id: frame.id,
+      method: frame.method,
+      error: serializeServerError(error),
+    });
     sendResponse(socket, {
       type: "res",
       id: frame.id,
       ok: false,
       error: {
         code: "INTERNAL_ERROR",
-        message: error instanceof Error ? error.message : "Unknown runtime error.",
+        message: `Internal runtime error. Reference: ${frame.id}`,
       },
     });
   }
@@ -259,13 +321,14 @@ async function handleRequest(socket: WebSocket, state: ClientState, request: Rpc
       }
 
       const runId = `run_${crypto.randomUUID()}`;
-      const abortController = startRun(state, runId);
+      const abortController = startRun(state, session.id, runId);
       const shouldDisplayUserMessage = params.source !== "ui";
       const userMessage: ChatMessage | undefined = shouldDisplayUserMessage
         ? {
             id: `msg_${crypto.randomUUID()}`,
             role: "user",
             content: params.text,
+            attachments: normalizeChatAttachments(params.attachments),
             createdAt: new Date().toISOString(),
             runId,
           }
@@ -277,6 +340,7 @@ async function handleRequest(socket: WebSocket, state: ClientState, request: Rpc
       sendOk(socket, request.id, { runId, status: "accepted" } satisfies ChatSendPayload);
       void runAgent(socket, state, session, runId, params.text, abortController, {
         userMessageId: userMessage?.id,
+        attachments: normalizeChatAttachments(params.attachments),
         source: params.source,
         surfaceAction: params.surfaceAction,
       });
@@ -399,7 +463,11 @@ async function handleRequest(socket: WebSocket, state: ClientState, request: Rpc
         return;
       }
       const account = store.getCurrentAccount() ?? store.signInLocal("本地用户");
-      const sharedSkills = skills.filter((skill) => skill.enabled).slice(0, 4).map((skill) => skill.name);
+      const sharedSkills = skillService
+        .list()
+        .filter((skill) => skill.enabled && !skill.quarantined)
+        .slice(0, 4)
+        .map((skill) => skill.name);
       const shareableMemories = store
         .listMemories()
         .filter((memory) => memory.scope === "social" || memory.scope === "shared")
@@ -422,10 +490,27 @@ async function handleRequest(socket: WebSocket, state: ClientState, request: Rpc
       return;
     }
 
+    case "memory.query": {
+      const params = (request.params ?? {}) as MemoryQueryParams;
+      sendOk(socket, request.id, { memories: memoryService.query(params.query, params.kinds, params.limit ?? 8) } satisfies MemoryQueryPayload);
+      return;
+    }
+
+    case "memory.propose": {
+      const params = request.params as MemoryProposeParams | undefined;
+      if (!params?.content?.trim()) {
+        sendError(socket, request.id, "BAD_REQUEST", "memory.propose requires content.");
+        return;
+      }
+      const proposal = memoryService.propose(params);
+      sendOk(socket, request.id, { proposal } satisfies MemoryProposePayload);
+      return;
+    }
+
     case "memory.commit": {
       const params = request.params as { proposal?: Memory } | undefined;
       if (params?.proposal) {
-        store.saveMemory(params.proposal);
+        memoryService.commit(params.proposal, params.proposal.sourceType ?? "manual", params.proposal.sourceId ?? request.id);
       }
       sendOk(socket, request.id, { memories: store.listMemories() });
       return;
@@ -437,7 +522,28 @@ async function handleRequest(socket: WebSocket, state: ClientState, request: Rpc
     }
 
     case "skill.list": {
-      sendOk(socket, request.id, { skills });
+      sendOk(socket, request.id, { skills: skillService.refresh() });
+      return;
+    }
+
+    case "skill.search": {
+      const params = (request.params ?? {}) as SkillSearchParams;
+      sendOk(socket, request.id, { skills: skillService.search(params.query, params.limit ?? 5) } satisfies SkillSearchPayload);
+      return;
+    }
+
+    case "skill.view": {
+      const params = request.params as { name?: string } | undefined;
+      if (!params?.name) {
+        sendError(socket, request.id, "BAD_REQUEST", "skill.view requires name.");
+        return;
+      }
+      const view = skillService.view(params.name);
+      if (!view) {
+        sendError(socket, request.id, "NOT_FOUND", "Skill does not exist or has no SKILL.md.");
+        return;
+      }
+      sendOk(socket, request.id, view);
       return;
     }
 
@@ -454,7 +560,7 @@ async function handleRequest(socket: WebSocket, state: ClientState, request: Rpc
       }
       const prompt = `${params.name} ${params.input ?? ""}`.trim();
       const runId = `run_${crypto.randomUUID()}`;
-      const abortController = startRun(state, runId);
+      const abortController = startRun(state, session.id, runId);
       const userMessage: ChatMessage = {
         id: `msg_${crypto.randomUUID()}`,
         role: "user",
@@ -466,6 +572,99 @@ async function handleRequest(socket: WebSocket, state: ClientState, request: Rpc
       emit(socket, state, "chat.message", { sessionId: session.id, message: userMessage } satisfies ChatMessageEvent);
       sendOk(socket, request.id, { runId, status: "accepted" } satisfies ChatSendPayload);
       void runAgent(socket, state, session, runId, prompt, abortController);
+      return;
+    }
+
+    case "skill.manage": {
+      const params = request.params as SkillManageParams | undefined;
+      if (!params?.name || !params.action) {
+        sendError(socket, request.id, "BAD_REQUEST", "skill.manage requires name and action.");
+        return;
+      }
+      const currentSkill = store.getSkill(params.name);
+      if (!currentSkill) {
+        sendError(socket, request.id, "NOT_FOUND", "Skill does not exist.");
+        return;
+      }
+      const payload = await toolRegistry.invoke({
+        name: "skill_manage",
+        input: { name: params.name, action: params.action },
+        source: "ui",
+      });
+      emit(socket, state, "tool.run", { run: payload.run } satisfies ToolRunEvent);
+      if (payload.run.permissionId) {
+        const permission = store.getPermission(payload.run.permissionId);
+        if (permission) emit(socket, state, "permission.request", { request: permission } satisfies PermissionRequestEvent);
+      }
+      if (payload.run.status === "success" && payload.result && typeof payload.result === "object" && "skill" in payload.result) {
+        sendOk(socket, request.id, payload.result as SkillManagePayload);
+        return;
+      }
+      sendOk(socket, request.id, { skill: currentSkill } satisfies SkillManagePayload);
+      return;
+    }
+
+    case "tool.catalog": {
+      sendOk(socket, request.id, { tools: toolRegistry.catalog() } satisfies ToolCatalogPayload);
+      return;
+    }
+
+    case "tool.invoke": {
+      const params = request.params as ToolInvokeParams | undefined;
+      if (!params?.name) {
+        sendError(socket, request.id, "BAD_REQUEST", "tool.invoke requires name.");
+        return;
+      }
+      const payload = await toolRegistry.invoke(params);
+      emit(socket, state, "tool.run", { run: payload.run } satisfies ToolRunEvent);
+      if (payload.run.permissionId) {
+        const permission = store.getPermission(payload.run.permissionId);
+        if (permission) emit(socket, state, "permission.request", { request: permission } satisfies PermissionRequestEvent);
+      }
+      sendOk(socket, request.id, payload satisfies ToolInvokePayload);
+      return;
+    }
+
+    case "tool.audit.list": {
+      const params = request.params as { limit?: number } | undefined;
+      sendOk(socket, request.id, { runs: store.listToolRuns(params?.limit ?? 60) } satisfies ToolAuditListPayload);
+      return;
+    }
+
+    case "permission.list": {
+      const params = request.params as { status?: "pending" | "approved" | "denied"; limit?: number } | undefined;
+      sendOk(socket, request.id, { requests: store.listPermissions(params?.status, params?.limit ?? 60) } satisfies PermissionListPayload);
+      return;
+    }
+
+    case "permission.resolve": {
+      const params = request.params as PermissionResolveParams | undefined;
+      if (!params?.permissionId) {
+        sendError(socket, request.id, "BAD_REQUEST", "permission.resolve requires permissionId.");
+        return;
+      }
+      const payload = await toolRegistry.resolvePermission(params.permissionId, params.approved);
+      const responsePayload: PermissionResolvePayload = {
+        request: payload.request,
+        ...("run" in payload ? { run: payload.run, result: payload.result } : {}),
+      };
+      if (responsePayload.run) emit(socket, state, "tool.run", { run: responsePayload.run } satisfies ToolRunEvent);
+      const resumed = responsePayload.run ? resumePendingAgentIfReady(socket, state, responsePayload.request, responsePayload.run, responsePayload.result) : false;
+      if (!resumed && responsePayload.request.sessionId) {
+        const targetSession = store.getSession(responsePayload.request.sessionId);
+        if (targetSession) {
+          const assistantMessage: ChatMessage = {
+            id: `msg_${crypto.randomUUID()}`,
+            role: "assistant",
+            content: permissionResolutionText(responsePayload),
+            createdAt: new Date().toISOString(),
+            runId: responsePayload.request.runId,
+          };
+          store.saveMessage(targetSession.id, assistantMessage);
+          emit(socket, state, "chat.message", { sessionId: targetSession.id, message: assistantMessage } satisfies ChatMessageEvent);
+        }
+      }
+      sendOk(socket, request.id, responsePayload);
       return;
     }
 
@@ -536,93 +735,198 @@ async function runAgent(
   abortController: AbortController,
   options: AgentRunOptions = {},
 ) {
-  emit(socket, state, "agent.lifecycle", { sessionId: session.id, runId, phase: "start" } satisfies AgentLifecycleEvent);
-  emitActivity(socket, state, session.id, activityForTask(text), true, "task-start");
-  emitPet(socket, state, session.id, "thinking", 0.72, "agent-routing");
-
   const actionSurface = options.surfaceAction ? store.getSurface(session.id, options.surfaceAction.surfaceId) : null;
   const agentText = options.surfaceAction ? buildSurfaceActionAgentText(text, options.surfaceAction, actionSurface) : text;
-  const history = store.listMessages(session.id).filter((message) => message.id !== options.userMessageId);
-  const inlineSurface = createInlineMediaSurface(agentText);
-  const bufferA2ui = Boolean(inlineSurface) || shouldBufferA2ui(agentText);
 
-  let rawAssistantText = "";
-  let assistantText = "";
-  let streamedAssistantText = "";
-  let responseSurface: SurfaceSpec | undefined = inlineSurface;
   try {
+    const inlineSurface = createInlineMediaSurface(agentText);
     const directResponse = inlineSurface ? createInlineMediaResponse(inlineSurface) : createChartResponse(agentText) ?? (await createWeatherResponse(agentText, options.surfaceAction, actionSurface));
     if (directResponse) {
-      assistantText = directResponse.text;
-      responseSurface = directResponse.surface;
-    } else {
-      const stream = await streamWithAiSdk(agentText, history, abortController.signal);
-      if (!stream) {
-        assistantText = "还没有可用的模型 API 配置。请在配置页的“模型 API”里保存 DeepSeek API Key 和模型名，例如 deepseek-chat，然后再发送消息。";
-        responseSurface = undefined;
-      } else {
-        for await (const chunk of stream.textStream) {
-          if (!state.activeRuns.has(runId)) return;
-          rawAssistantText += chunk;
-          if (!bufferA2ui) {
-            streamedAssistantText += chunk;
-            emit(socket, state, "agent.delta", {
-              sessionId: session.id,
-              runId,
-              text: chunk,
-            } satisfies AgentDeltaEvent);
-          }
-        }
-        const parsed = parseAgentSurfaceResponse(rawAssistantText, { now: new Date().toISOString(), userText: agentText });
-        assistantText = parsed.text || (parsed.surface ? "我把回复整理成一张可交互卡片。" : "");
-        responseSurface = inlineSurface ?? parsed.surface;
-      }
+      await finishDirectAgent(socket, state, session, runId, agentText, directResponse);
+      return;
     }
+
+    const kernel = new AgentKernel({
+      store,
+      memory: memoryService,
+      tools: toolRegistry,
+      contextBuilder,
+      emit: (event, payload) => emit(socket, state, event, payload),
+    });
+    const result = await kernel.run(session, runId, agentText, {
+      userMessageId: options.userMessageId,
+      abortSignal: abortController.signal,
+      isActive: () => state.activeRuns.has(runId),
+    });
+    if (!result || !state.activeRuns.has(runId)) return;
+    if (result.continuation) savePendingAgentContinuation(result.continuation);
+    emit(socket, state, "chat.message", { sessionId: session.id, message: result.message } satisfies ChatMessageEvent);
   } catch (error) {
     if (abortController.signal.aborted) return;
     const message = error instanceof Error ? error.message : "未知错误";
-    console.warn(`[pet-agentd] AI SDK generation failed: ${message}`);
-    assistantText = `模型调用失败：${message}`;
-    responseSurface = undefined;
-    emit(socket, state, "agent.lifecycle", { sessionId: session.id, runId, phase: "error", message } satisfies AgentLifecycleEvent);
-  }
-
-  if (!state.activeRuns.has(runId)) return;
-
-  if (responseSurface) {
-    store.saveSurface(session.id, responseSurface);
-    emit(socket, state, "ui.surface.create", { sessionId: session.id, surface: responseSurface } satisfies SurfaceEvent);
-  }
-
-  const finalDeltaText = streamedAssistantText ? assistantText.slice(streamedAssistantText.length) : assistantText;
-  if (finalDeltaText || responseSurface) {
+    const clientMessage = redactSensitiveText(message);
+    logger.warn("agent.generation_failed", { error: serializeServerError(error), sessionId: session.id, runId });
+    emit(socket, state, "agent.lifecycle", { sessionId: session.id, runId, phase: "error", message: clientMessage } satisfies AgentLifecycleEvent);
+    const assistantText = `模型调用失败：${clientMessage}`;
     emit(socket, state, "agent.delta", {
       sessionId: session.id,
       runId,
-      text: finalDeltaText,
-      ...(responseSurface ? { surface: responseSurface } : {}),
+      text: assistantText,
     } satisfies AgentDeltaEvent);
+    const assistantMessage: ChatMessage = {
+      id: `msg_${crypto.randomUUID()}`,
+      role: "assistant",
+      content: assistantText,
+      createdAt: new Date().toISOString(),
+      runId,
+    };
+    store.saveMessage(session.id, assistantMessage);
+    emit(socket, state, "chat.message", { sessionId: session.id, message: assistantMessage } satisfies ChatMessageEvent);
+    emitPet(socket, state, session.id, "needs_attention", 0.68, "agent-error");
+  } finally {
+    finishRun(state, session.id, runId);
+    if (state.activeRuns.size === 0) {
+      await sleep(300);
+      emitActivity(socket, state, session.id, restActivity(), false, "turn-complete");
+    }
+  }
+}
+
+function savePendingAgentContinuation(continuation: AgentContinuation) {
+  const pending: PendingAgentContinuation = {
+    continuation,
+    resolvedResults: new Map(),
+  };
+  pendingAgentContinuations.set(continuation.runId, pending);
+  for (const item of continuation.pendingTools) {
+    permissionToContinuation.set(item.permissionId, continuation.runId);
+  }
+}
+
+function resumePendingAgentIfReady(
+  socket: WebSocket,
+  state: ClientState,
+  request: PermissionRequest,
+  run: ToolRunRecord,
+  result: unknown,
+) {
+  const continuationRunId = permissionToContinuation.get(request.id);
+  if (!continuationRunId) return false;
+  const pending = pendingAgentContinuations.get(continuationRunId);
+  if (!pending) {
+    permissionToContinuation.delete(request.id);
+    return false;
   }
 
+  const pendingTool = pending.continuation.pendingTools.find((item) => item.permissionId === request.id);
+  if (!pendingTool) return true;
+  pending.resolvedResults.set(request.id, {
+    call: pendingTool.call,
+    value: {
+      tool: pendingTool.call.toolName,
+      status: run.status,
+      result,
+    },
+    permissionId: request.id,
+  });
+  permissionToContinuation.delete(request.id);
+
+  const allResolved = pending.continuation.pendingTools.every((item) => pending.resolvedResults.has(item.permissionId));
+  if (!allResolved) return true;
+
+  pendingAgentContinuations.delete(continuationRunId);
+  const session = store.getSession(pending.continuation.sessionId);
+  if (!session) return true;
+
+  const abortController = startRun(state, session.id, pending.continuation.runId);
+  void runAgentContinuation(socket, state, session, pending.continuation, [...pending.resolvedResults.values()], abortController);
+  return true;
+}
+
+async function runAgentContinuation(
+  socket: WebSocket,
+  state: ClientState,
+  session: RuntimeSession,
+  continuation: AgentContinuation,
+  resolvedResults: AgentToolResult[],
+  abortController: AbortController,
+) {
+  try {
+    const kernel = new AgentKernel({
+      store,
+      memory: memoryService,
+      tools: toolRegistry,
+      contextBuilder,
+      emit: (event, payload) => emit(socket, state, event, payload),
+    });
+    const result = await kernel.resume(session, continuation, resolvedResults, {
+      abortSignal: abortController.signal,
+      isActive: () => state.activeRuns.has(continuation.runId),
+    });
+    if (!result || !state.activeRuns.has(continuation.runId)) return;
+    if (result.continuation) savePendingAgentContinuation(result.continuation);
+    emit(socket, state, "chat.message", { sessionId: session.id, message: result.message } satisfies ChatMessageEvent);
+  } catch (error) {
+    if (abortController.signal.aborted) return;
+    const message = redactSensitiveText(error instanceof Error ? error.message : "未知错误");
+    logger.warn("agent.continuation_failed", { error: serializeServerError(error), sessionId: session.id, runId: continuation.runId });
+    emit(socket, state, "agent.lifecycle", { sessionId: session.id, runId: continuation.runId, phase: "error", message } satisfies AgentLifecycleEvent);
+    const assistantText = `权限确认后的模型续跑失败：${message}`;
+    emit(socket, state, "agent.delta", { sessionId: session.id, runId: continuation.runId, text: assistantText } satisfies AgentDeltaEvent);
+    const assistantMessage: ChatMessage = {
+      id: `msg_${crypto.randomUUID()}`,
+      role: "assistant",
+      content: assistantText,
+      createdAt: new Date().toISOString(),
+      runId: continuation.runId,
+    };
+    store.saveMessage(session.id, assistantMessage);
+    emit(socket, state, "chat.message", { sessionId: session.id, message: assistantMessage } satisfies ChatMessageEvent);
+    emitPet(socket, state, session.id, "needs_attention", 0.68, "agent-continuation-error");
+  } finally {
+    finishRun(state, session.id, continuation.runId);
+    if (state.activeRuns.size === 0) {
+      await sleep(300);
+      emitActivity(socket, state, session.id, restActivity(), false, "turn-complete");
+    }
+  }
+}
+
+async function finishDirectAgent(
+  socket: WebSocket,
+  state: ClientState,
+  session: RuntimeSession,
+  runId: string,
+  text: string,
+  response: DirectAgentResponse,
+) {
+  emit(socket, state, "agent.lifecycle", { sessionId: session.id, runId, phase: "start" } satisfies AgentLifecycleEvent);
+  emitActivity(socket, state, session.id, activityForTask(text), true, "task-start");
+  emitPet(socket, state, session.id, "thinking", 0.72, "agent-direct-surface");
+
+  if (!state.activeRuns.has(runId)) return;
+  if (response.surface) {
+    store.saveSurface(session.id, response.surface);
+    emit(socket, state, "ui.surface.create", { sessionId: session.id, surface: response.surface } satisfies SurfaceEvent);
+  }
+  emit(socket, state, "agent.delta", {
+    sessionId: session.id,
+    runId,
+    text: response.text,
+    ...(response.surface ? { surface: response.surface } : {}),
+  } satisfies AgentDeltaEvent);
   const assistantMessage: ChatMessage = {
     id: `msg_${crypto.randomUUID()}`,
     role: "assistant",
-    content: assistantText.trim() || (responseSurface ? "可交互卡片已生成。" : "模型没有返回文本。"),
+    content: response.text.trim() || (response.surface ? "可交互卡片已生成。" : "已处理。"),
     createdAt: new Date().toISOString(),
     runId,
-    ...(responseSurface ? { surface: responseSurface } : {}),
+    ...(response.surface ? { surface: response.surface } : {}),
   };
   store.saveMessage(session.id, assistantMessage);
   emit(socket, state, "chat.message", { sessionId: session.id, message: assistantMessage } satisfies ChatMessageEvent);
   emitPet(socket, state, session.id, "speaking", 0.55, "answer-ready");
-
-  state.activeRuns.delete(runId);
   emit(socket, state, "agent.lifecycle", { sessionId: session.id, runId, phase: "end" } satisfies AgentLifecycleEvent);
-  await sleep(600);
-  if (state.activeRuns.size === 0) {
-    emitPet(socket, state, session.id, "idle", 0.4, "turn-complete");
-    emitActivity(socket, state, session.id, restActivity(), false, "turn-complete");
-  }
 }
 
 function buildSurfaceActionAgentText(text: string, surfaceAction: NonNullable<ChatSendParams["surfaceAction"]>, surface: SurfaceSpec | null) {
@@ -651,475 +955,6 @@ function compactSurfaceForPrompt(surface: SurfaceSpec) {
   };
 }
 
-function shouldBufferA2ui(text: string) {
-  const lower = text.toLowerCase();
-  return containsAny(lower, ["卡片", "组件", "表格", "表单", "看板", "图表", "饼状图", "饼图", "播放器", "a2ui", "ui", "chart", "table", "form", "dashboard"]);
-}
-
-type WeatherAgentResponse = {
-  text: string;
-  surface?: SurfaceSpec;
-};
-
-function createInlineMediaResponse(surface: SurfaceSpec): WeatherAgentResponse | undefined {
-  if (surface.layout.kind !== "media-player") return undefined;
-  const mediaLabel = surface.layout.media === "music" ? "音频" : "视频";
-  if (surface.layout.src || surface.layout.embedUrl) {
-    return {
-      text: `我把这个${mediaLabel}链接放进播放器了。`,
-      surface,
-    };
-  }
-  if (surface.layout.sourceUrl) {
-    return {
-      text: `这个来源不能直接内嵌播放，可以先打开原站；如果你有本地文件，也可以在播放器里选择文件。`,
-      surface,
-    };
-  }
-  return {
-    text: `还没有可播放来源。你可以选择本地${mediaLabel}文件，或者发一个合法可播放链接。`,
-    surface,
-  };
-}
-
-function createChartResponse(text: string): WeatherAgentResponse | undefined {
-  if (!isPieChartRequest(text)) return undefined;
-  const segments = extractPieSegments(text);
-  if (segments.length < 2) {
-    return {
-      text: "要画饼状图的话，把分类和数值发我就行，比如：直接搜索 40%、社交媒体 25%、广告 20%、其他 15%。",
-    };
-  }
-
-  const now = new Date().toISOString();
-  const total = segments.reduce((sum, segment) => sum + segment.value, 0);
-  const rows = segments.map((segment) => ({
-    label: segment.label,
-    value: segment.value,
-    percent: total ? `${Math.round((segment.value / total) * 100)}%` : "0%",
-  }));
-
-  return {
-    text: "我按你给的数据生成了饼状图。",
-    surface: {
-      id: `surface_${crypto.randomUUID()}`,
-      type: "panel",
-      intent: "chat",
-      title: "饼状图",
-      layout: {
-        kind: "stack",
-        direction: "column",
-        gap: "md",
-        children: [
-          {
-            kind: "pie-chart",
-            title: "占比分布",
-            segments,
-          },
-          {
-            kind: "table",
-            columns: [
-              { key: "label", label: "分类" },
-              { key: "value", label: "数值" },
-              { key: "percent", label: "占比" },
-            ],
-            rows,
-          },
-        ],
-      },
-      data: {
-        source: "user-provided",
-      },
-      createdAt: now,
-    },
-  };
-}
-
-function isPieChartRequest(text: string) {
-  const lower = text.toLowerCase();
-  return containsAny(lower, ["饼状图", "饼图", "pie chart", "pie-chart"]);
-}
-
-function extractPieSegments(text: string) {
-  const segments: Array<{ label: string; value: number }> = [];
-  const normalized = text
-    .replace(/[，、；;]/g, "\n")
-    .replace(/\s+\|\s+/g, "\n");
-  const pattern = /([^\d\n:：|]{1,40})[:：]?\s*(-?\d+(?:\.\d+)?)\s*%?/g;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(normalized))) {
-    const label = normalizePieLabel(match[1]);
-    const value = Number(match[2]);
-    if (!label || !Number.isFinite(value) || value <= 0) continue;
-    if (segments.some((segment) => segment.label === label)) continue;
-    segments.push({ label, value });
-  }
-  return segments.slice(0, 8);
-}
-
-function normalizePieLabel(value?: string) {
-  if (!value) return undefined;
-  const label = value
-    .replace(/(请|帮我|生成|画|做|一个|一张|饼状图|饼图|占比|分布|数据|如下|分别是|为)/g, "")
-    .replace(/[^\p{Script=Han}A-Za-z0-9 _.-]/gu, "")
-    .trim();
-  if (!label || /^(近|最近|过去|未来|第|前|top)$/i.test(label)) return undefined;
-  if (/[天日周月年]$/.test(label)) return undefined;
-  return label.slice(0, 40);
-}
-
-type WeatherLocation = {
-  name: string;
-  latitude: number;
-  longitude: number;
-  label: string;
-  timezone?: string;
-};
-
-type OpenMeteoGeocodeResponse = {
-  results?: Array<{
-    name?: string;
-    latitude?: number;
-    longitude?: number;
-    country?: string;
-    admin1?: string;
-    timezone?: string;
-  }>;
-};
-
-type OpenMeteoForecastResponse = {
-  timezone?: string;
-  current?: {
-    time?: string;
-    temperature_2m?: number;
-    apparent_temperature?: number;
-    relative_humidity_2m?: number;
-    weather_code?: number;
-    wind_speed_10m?: number;
-  };
-  daily?: {
-    time?: string[];
-    weather_code?: number[];
-    temperature_2m_max?: number[];
-    temperature_2m_min?: number[];
-    precipitation_probability_max?: number[];
-  };
-};
-
-async function createWeatherResponse(agentText: string, surfaceAction?: ChatSendParams["surfaceAction"], surface?: SurfaceSpec | null): Promise<WeatherAgentResponse | undefined> {
-  const isWeatherAction = Boolean(surfaceAction && (surfaceAction.actionId.startsWith("weather-") || surface?.intent === "weather"));
-  if (!isWeatherAction && !isWeatherRequest(agentText)) return undefined;
-
-  const days = surfaceAction?.actionId === "weather-7d" || wantsSevenDayForecast(agentText) ? 7 : 1;
-  const surfaceLocation = readWeatherLocation(surface);
-  const requestedLocation = extractWeatherLocation(agentText) ?? process.env.PET_WEATHER_LOCATION?.trim();
-
-  if (!surfaceLocation && !requestedLocation) {
-    return {
-      text: "你想查哪个城市的天气？告诉我城市名后，我会用实时天气数据生成卡片。",
-    };
-  }
-
-  try {
-    const location = surfaceLocation ?? (await geocodeWeatherLocation(requestedLocation!));
-    if (!location) {
-      return {
-        text: `没找到「${requestedLocation}」的天气位置。换一个城市名试试。`,
-      };
-    }
-
-    const forecast = await fetchWeatherForecast(location, days);
-    const now = new Date().toISOString();
-    if (days >= 7) {
-      return {
-        text: `这是 ${location.label} 未来 7 天的实时天气预报。`,
-        surface: buildSevenDayWeatherSurface(location, forecast, now),
-      };
-    }
-
-    return {
-      text: `这是 ${location.label} 的今日实时天气。`,
-      surface: buildTodayWeatherSurface(location, forecast, now),
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "天气数据获取失败。";
-    return {
-      text: `天气数据获取失败：${message}`,
-    };
-  }
-}
-
-function isWeatherRequest(text: string) {
-  const lower = text.toLowerCase();
-  return containsAny(lower, ["天气", "气温", "降雨", "下雨", "预报", "weather", "forecast", "temperature"]);
-}
-
-function wantsSevenDayForecast(text: string) {
-  const lower = text.toLowerCase();
-  return containsAny(lower, ["未来7天", "未来七天", "7天天气", "七天天气", "一周天气", "7-day", "seven-day", "weekly forecast"]);
-}
-
-function extractWeatherLocation(text: string) {
-  const patterns = [
-    /([\p{Script=Han}A-Za-z][\p{Script=Han}A-Za-z\s.'-]{1,48})(?:的)?(?:今日|今天|当前|实时|未来(?:7|七)天|一周)?(?:天气|气温|预报)/u,
-    /(?:天气|气温|预报).{0,12}(?:在|查|看|查询|查看)?\s*([\p{Script=Han}A-Za-z][\p{Script=Han}A-Za-z\s.'-]{1,48})/u,
-  ];
-
-  for (const pattern of patterns) {
-    const match = text.match(pattern);
-    const candidate = cleanWeatherLocationCandidate(match?.[1]);
-    if (candidate) return candidate;
-  }
-
-  return undefined;
-}
-
-function cleanWeatherLocationCandidate(value?: string) {
-  if (!value) return undefined;
-  let candidate = value
-    .replace(/内部 UI 事件.*/g, "")
-    .replace(/用户点击了/g, "")
-    .replace(/卡片上?的?/g, "")
-    .replace(/(帮我|请|给我|我要|我想|想看|查一下|查询|查|看看|查看|显示|生成|整理|一下)/g, "")
-    .replace(/(今日|今天|当前|实时|明天|未来7天|未来七天|一周|七天|7天|的)$/g, "")
-    .replace(/[「」"'`]/g, "")
-    .trim();
-
-  candidate = candidate.replace(/\s+/g, " ");
-  const invalid = new Set(["天气", "气温", "预报", "今日", "今天", "未来", "未来7天", "未来七天", "卡片", "当前", "实时", "clear"]);
-  if (!candidate || invalid.has(candidate.toLowerCase())) return undefined;
-  return candidate;
-}
-
-function readWeatherLocation(surface?: SurfaceSpec | null): WeatherLocation | null {
-  if (!surface || surface.intent !== "weather" || !isRecord(surface.data)) return null;
-  const latitude = readNumber(surface.data.latitude);
-  const longitude = readNumber(surface.data.longitude);
-  const name = typeof surface.data.locationName === "string" ? surface.data.locationName : undefined;
-  const label = typeof surface.data.locationLabel === "string" ? surface.data.locationLabel : name;
-  const timezone = typeof surface.data.timezone === "string" ? surface.data.timezone : undefined;
-  if (!name || !label || latitude === undefined || longitude === undefined) return null;
-  return { name, label, latitude, longitude, timezone };
-}
-
-async function geocodeWeatherLocation(locationName: string): Promise<WeatherLocation | null> {
-  const url = new URL("https://geocoding-api.open-meteo.com/v1/search");
-  url.searchParams.set("name", locationName);
-  url.searchParams.set("count", "1");
-  url.searchParams.set("language", "zh");
-  url.searchParams.set("format", "json");
-  const payload = await fetchJson<OpenMeteoGeocodeResponse>(url.toString());
-  const first = payload.results?.[0];
-  if (!first?.name || typeof first.latitude !== "number" || typeof first.longitude !== "number") return null;
-  const label = [first.name, first.admin1, first.country].filter(Boolean).join(" · ");
-  return {
-    name: first.name,
-    latitude: first.latitude,
-    longitude: first.longitude,
-    label,
-    timezone: first.timezone,
-  };
-}
-
-async function fetchWeatherForecast(location: WeatherLocation, days: number): Promise<OpenMeteoForecastResponse> {
-  const url = new URL("https://api.open-meteo.com/v1/forecast");
-  url.searchParams.set("latitude", String(location.latitude));
-  url.searchParams.set("longitude", String(location.longitude));
-  url.searchParams.set("current", "temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m");
-  url.searchParams.set("daily", "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max");
-  url.searchParams.set("forecast_days", String(days));
-  url.searchParams.set("timezone", location.timezone || "auto");
-  return fetchJson<OpenMeteoForecastResponse>(url.toString());
-}
-
-function buildTodayWeatherSurface(location: WeatherLocation, forecast: OpenMeteoForecastResponse, now: string): SurfaceSpec {
-  const current = forecast.current ?? {};
-  const daily = forecast.daily ?? {};
-  const max = daily.temperature_2m_max?.[0];
-  const min = daily.temperature_2m_min?.[0];
-  const precip = daily.precipitation_probability_max?.[0];
-  const weatherCode = current.weather_code ?? daily.weather_code?.[0];
-  const summary = [
-    weatherCode === undefined ? undefined : weatherCodeLabel(weatherCode),
-    max === undefined || min === undefined ? undefined : `最高 ${formatTemperature(max)} / 最低 ${formatTemperature(min)}`,
-    precip === undefined ? undefined : `最大降雨概率 ${formatPercent(precip)}`,
-  ]
-    .filter(Boolean)
-    .join("，");
-
-  return weatherSurfaceBase(location, "今日天气", now, {
-    kind: "stack",
-    direction: "column",
-    gap: "md",
-    children: [
-      {
-        kind: "text",
-        variant: "body",
-        text: `数据源 Open-Meteo，更新时间 ${formatWeatherTime(current.time ?? now)}。${summary || "暂无完整概况。"}`,
-      },
-      {
-        kind: "metric-row",
-        metrics: [
-          { label: "气温", value: formatTemperature(current.temperature_2m), tone: "neutral" },
-          { label: "体感", value: formatTemperature(current.apparent_temperature), tone: "neutral" },
-          { label: "湿度", value: formatNullable(current.relative_humidity_2m, "%"), tone: "neutral" },
-          { label: "风速", value: formatNullable(current.wind_speed_10m, " km/h"), tone: "neutral" },
-        ],
-      },
-    ],
-  }, [{ id: "weather-7d", label: "查看未来7天", style: "primary", icon: "calendar" }]);
-}
-
-function buildSevenDayWeatherSurface(location: WeatherLocation, forecast: OpenMeteoForecastResponse, now: string): SurfaceSpec {
-  const daily = forecast.daily ?? {};
-  const dates = daily.time ?? [];
-  const rows = dates.slice(0, 7).map((date, index) => ({
-    date: formatWeatherDate(date),
-    weather: weatherCodeLabel(daily.weather_code?.[index]),
-    temp: `${formatTemperature(daily.temperature_2m_min?.[index])} / ${formatTemperature(daily.temperature_2m_max?.[index])}`,
-    rain: formatPercent(daily.precipitation_probability_max?.[index]),
-  }));
-
-  return weatherSurfaceBase(location, "未来7天天气", now, {
-    kind: "stack",
-    direction: "column",
-    gap: "md",
-    children: [
-      {
-        kind: "text",
-        variant: "body",
-        text: `数据源 Open-Meteo，按 ${forecast.timezone ?? location.timezone ?? "当地"} 时区返回。`,
-      },
-      {
-        kind: "table",
-        columns: [
-          { key: "date", label: "日期" },
-          { key: "weather", label: "天气" },
-          { key: "temp", label: "低/高温" },
-          { key: "rain", label: "降雨概率" },
-        ],
-        rows,
-      },
-    ],
-  });
-}
-
-function weatherSurfaceBase(location: WeatherLocation, title: string, createdAt: string, layout: ComponentNode, actions?: SurfaceSpec["actions"]): SurfaceSpec {
-  return {
-    id: `surface_${crypto.randomUUID()}`,
-    type: "panel",
-    intent: "weather",
-    title: `${location.name} ${title}`,
-    layout,
-    data: {
-      source: "open-meteo",
-      locationName: location.name,
-      locationLabel: location.label,
-      latitude: location.latitude,
-      longitude: location.longitude,
-      timezone: location.timezone,
-    },
-    ...(actions?.length ? { actions } : {}),
-    createdAt,
-  };
-}
-
-async function fetchJson<T>(url: string): Promise<T> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8_000);
-  try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: { accept: "application/json" },
-    });
-    const body = (await response.json().catch(() => null)) as T | { reason?: string; error?: string } | null;
-    if (!response.ok) {
-      const message = isRecord(body) && typeof body.reason === "string" ? body.reason : `HTTP ${response.status}`;
-      throw new Error(message);
-    }
-    if (!body) throw new Error("天气服务没有返回 JSON。");
-    return body as T;
-  } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
-      throw new Error("天气服务请求超时。");
-    }
-    throw error;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-function weatherCodeLabel(code?: number) {
-  const labels: Record<number, string> = {
-    0: "晴",
-    1: "大部晴朗",
-    2: "局部多云",
-    3: "阴",
-    45: "雾",
-    48: "雾凇",
-    51: "小毛毛雨",
-    53: "毛毛雨",
-    55: "较强毛毛雨",
-    56: "冻毛毛雨",
-    57: "较强冻毛毛雨",
-    61: "小雨",
-    63: "中雨",
-    65: "大雨",
-    66: "冻雨",
-    67: "强冻雨",
-    71: "小雪",
-    73: "中雪",
-    75: "大雪",
-    77: "雪粒",
-    80: "小阵雨",
-    81: "阵雨",
-    82: "强阵雨",
-    85: "小阵雪",
-    86: "强阵雪",
-    95: "雷暴",
-    96: "雷暴伴小冰雹",
-    99: "雷暴伴强冰雹",
-  };
-  return code === undefined ? "未知" : labels[code] ?? `天气码 ${code}`;
-}
-
-function formatTemperature(value?: number) {
-  return value === undefined ? "未知" : `${Math.round(value)}°C`;
-}
-
-function formatPercent(value?: number) {
-  return value === undefined ? "未知" : `${Math.round(value)}%`;
-}
-
-function formatNullable(value?: number, suffix = "") {
-  return value === undefined ? "未知" : `${Math.round(value)}${suffix}`;
-}
-
-function formatWeatherTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}
-
-function formatWeatherDate(value: string) {
-  const date = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "short",
-    day: "numeric",
-    weekday: "short",
-  }).format(date);
-}
-
-function readNumber(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
 function ensureSession() {
   const existing = store.getLatestSession();
   if (existing) return existing;
@@ -1140,237 +975,36 @@ function welcomeText() {
   return "我是你的AI宠物Q，请问有什么需要我做的？";
 }
 
-function startRun(state: ClientState, runId: string) {
+function startRun(state: ClientState, sessionId: string, runId: string) {
+  const existing = activeSessionRuns.get(sessionId);
+  if (existing && existing.runId !== runId) {
+    existing.controller.abort();
+  }
   const controller = new AbortController();
   state.activeRuns.set(runId, controller);
+  activeSessionRuns.set(sessionId, { runId, controller });
   return controller;
+}
+
+function finishRun(state: ClientState, sessionId: string, runId: string) {
+  state.activeRuns.delete(runId);
+  if (activeSessionRuns.get(sessionId)?.runId === runId) {
+    activeSessionRuns.delete(sessionId);
+  }
 }
 
 function cancelActiveRuns(state: ClientState) {
   for (const controller of state.activeRuns.values()) {
     controller.abort();
   }
+  for (const [sessionId, run] of activeSessionRuns) {
+    if (state.activeRuns.has(run.runId)) activeSessionRuns.delete(sessionId);
+  }
   state.activeRuns.clear();
-}
-
-function createInlineMediaSurface(text: string): SurfaceSpec | undefined {
-  const intent = inferMediaIntent(text);
-  if (!intent) return undefined;
-
-  const now = new Date().toISOString();
-  const sourceUrl = extractFirstUrl(text);
-  const playback = sourceUrl ? resolvePlayback(intent, sourceUrl) : { status: "needs-source" as const };
-  const host = sourceUrl ? hostLabel(sourceUrl) : undefined;
-  const layout = mediaPlayer({
-    media: intent,
-    title: mediaTitle(intent, sourceUrl, text),
-    subtitle: sourceUrl ? `来源：${host ?? sourceUrl}` : "选择本地文件，或发送可播放链接",
-    provider: host,
-    posterTone: intent === "music" ? "aqua" : "rose",
-    sourceUrl,
-    ...playback,
-  });
-  const surface = surfaceBase("media", intent, intent === "music" ? "音乐播放器" : "视频播放器", layout, now);
-  surface.actions = sourceUrl ? [{ id: "open", label: "打开来源", style: "secondary", icon: "external" }] : undefined;
-  return surface;
-}
-
-function surfaceBase(type: SurfaceSpec["type"], intent: SurfaceSpec["intent"], title: string, layout: ComponentNode, createdAt: string): SurfaceSpec {
-  return {
-    id: `surface_${crypto.randomUUID()}`,
-    type,
-    intent,
-    title,
-    layout,
-    createdAt,
-  };
-}
-
-function mediaPlayer({
-  media,
-  title,
-  subtitle,
-  provider,
-  posterTone,
-  sourceUrl,
-  src,
-  embedUrl,
-  mimeType,
-  status,
-}: {
-  media: "music" | "video";
-  title: string;
-  subtitle: string;
-  provider?: string;
-  posterTone: "aqua" | "rose";
-  sourceUrl?: string;
-  src?: string;
-  embedUrl?: string;
-  mimeType?: string;
-  status: "ready" | "needs-source" | "external-only";
-}): ComponentNode {
-  return {
-    kind: "media-player",
-    media,
-    title,
-    subtitle,
-    provider,
-    posterTone,
-    sourceUrl,
-    src,
-    embedUrl,
-    mimeType,
-    status,
-    controls: sourceUrl ? ["play", "pause", "open"] : ["play", "pause"],
-  };
-}
-
-function inferMediaIntent(text: string): "music" | "video" | undefined {
-  const lower = text.toLowerCase();
-  const sourceUrl = extractFirstUrl(text);
-  if (
-    isMoviePlaybackRequest(lower) ||
-    containsAny(lower, [
-      "看视频",
-      "视频",
-      "video",
-      "youtube",
-      "youtu.be",
-      "bilibili",
-      "b站",
-      "movie",
-      "film",
-      "clip",
-    ])
-  ) {
-    return "video";
-  }
-  if (containsAny(lower, ["听歌", "音乐", "播放歌曲", "歌曲", "music", "song", "spotify", "audio", "podcast"])) return "music";
-  if (sourceUrl && isVideoUrl(sourceUrl)) return "video";
-  if (sourceUrl && isAudioUrl(sourceUrl)) return "music";
-  return undefined;
-}
-
-function isMoviePlaybackRequest(lowerText: string) {
-  return (
-    /(播放|放|看|打开).{0,6}(电影|影片|剧集|电视剧)/.test(lowerText) ||
-    /(电影|影片).{0,4}(播放|播放器)/.test(lowerText) ||
-    /(追剧|看剧)/.test(lowerText) ||
-    /(watch|play|open).{0,16}(movie|film|episode|show)/.test(lowerText)
-  );
-}
-
-function extractFirstUrl(text: string) {
-  const match = text.match(/https?:\/\/[^\s"'<>，。！？、)）\]]+/i);
-  return match?.[0]?.replace(/[.,;:!?]+$/, "");
-}
-
-function resolvePlayback(media: "music" | "video", sourceUrl: string): { src?: string; embedUrl?: string; mimeType?: string; status: "ready" | "external-only" } {
-  if (media === "music" && isAudioUrl(sourceUrl)) {
-    return { src: sourceUrl, mimeType: mimeTypeFromUrl(sourceUrl), status: "ready" };
-  }
-  if (media === "video" && isVideoUrl(sourceUrl)) {
-    return { src: sourceUrl, mimeType: mimeTypeFromUrl(sourceUrl), status: "ready" };
-  }
-
-  const embedUrl = media === "video" ? videoEmbedUrl(sourceUrl) : musicEmbedUrl(sourceUrl);
-  return embedUrl ? { embedUrl, status: "ready" } : { status: "external-only" };
-}
-
-function videoEmbedUrl(sourceUrl: string) {
-  try {
-    const url = new URL(sourceUrl);
-    const host = url.hostname.replace(/^www\./, "");
-    if (host === "youtu.be") {
-      const id = url.pathname.split("/").filter(Boolean)[0];
-      return id ? `https://www.youtube.com/embed/${id}` : undefined;
-    }
-    if (host.endsWith("youtube.com")) {
-      const id = url.searchParams.get("v") ?? url.pathname.match(/\/shorts\/([^/]+)/)?.[1] ?? url.pathname.match(/\/embed\/([^/]+)/)?.[1];
-      return id ? `https://www.youtube.com/embed/${id}` : undefined;
-    }
-    if (host.endsWith("bilibili.com")) {
-      const bvid = url.pathname.match(/\/video\/(BV[a-zA-Z0-9]+)/)?.[1];
-      return bvid ? `https://player.bilibili.com/player.html?bvid=${bvid}&autoplay=0` : undefined;
-    }
-  } catch {
-    return undefined;
-  }
-}
-
-function musicEmbedUrl(sourceUrl: string) {
-  try {
-    const url = new URL(sourceUrl);
-    const host = url.hostname.replace(/^www\./, "");
-    if (host === "open.spotify.com") {
-      const [kind, id] = url.pathname.split("/").filter(Boolean);
-      if (kind && id && ["album", "artist", "episode", "playlist", "show", "track"].includes(kind)) {
-        return `https://open.spotify.com/embed/${kind}/${id}`;
-      }
-    }
-  } catch {
-    return undefined;
-  }
-}
-
-function mediaTitle(media: "music" | "video", sourceUrl?: string, requestText = "") {
-  if (!sourceUrl) {
-    if (media === "video" && isMoviePlaybackRequest(requestText.toLowerCase())) {
-      return "电影播放器";
-    }
-    return media === "music" ? "音乐播放器" : "视频播放器";
-  }
-  try {
-    const url = new URL(sourceUrl);
-    const lastPart = decodeURIComponent(url.pathname.split("/").filter(Boolean).at(-1) ?? "");
-    return lastPart || hostLabel(sourceUrl) || (media === "music" ? "音乐播放器" : "视频播放器");
-  } catch {
-    return media === "music" ? "音乐播放器" : "视频播放器";
-  }
-}
-
-function hostLabel(sourceUrl: string) {
-  try {
-    return new URL(sourceUrl).hostname.replace(/^www\./, "");
-  } catch {
-    return undefined;
-  }
-}
-
-function isAudioUrl(sourceUrl: string) {
-  return /\.(mp3|m4a|aac|wav|ogg|oga|opus|flac)(\?.*)?$/i.test(sourceUrl);
-}
-
-function isVideoUrl(sourceUrl: string) {
-  return /\.(mp4|m4v|mov|webm|ogv)(\?.*)?$/i.test(sourceUrl);
-}
-
-function mimeTypeFromUrl(sourceUrl: string) {
-  const extension = sourceUrl.split("?")[0]?.split(".").pop()?.toLowerCase();
-  const types: Record<string, string> = {
-    mp3: "audio/mpeg",
-    m4a: "audio/mp4",
-    aac: "audio/aac",
-    wav: "audio/wav",
-    ogg: "audio/ogg",
-    oga: "audio/ogg",
-    opus: "audio/opus",
-    flac: "audio/flac",
-    mp4: "video/mp4",
-    m4v: "video/mp4",
-    mov: "video/quicktime",
-    webm: "video/webm",
-    ogv: "video/ogg",
-  };
-  return extension ? types[extension] : undefined;
 }
 
 function containsAny(value: string, needles: string[]) {
   return needles.some((needle) => value.includes(needle));
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function activityForTask(text: string): PetActivityEvent["activity"] {
@@ -1404,6 +1038,30 @@ function restActivity(): PetActivityEvent["activity"] {
   return Math.floor(Date.now() / 15_000) % 2 === 0 ? "sleeping" : "exercise";
 }
 
+function permissionResolutionText(payload: PermissionResolvePayload) {
+  if (payload.request.status === "denied") {
+    return `已取消工具调用：${payload.request.toolName}。`;
+  }
+  if (!payload.run) {
+    return `权限已确认：${payload.request.toolName}。`;
+  }
+  const statusText = payload.run.status === "success" ? "已执行" : payload.run.status === "failed" ? "执行失败" : payload.run.status === "denied" ? "已取消" : "等待确认";
+  return `${statusText}工具：${payload.run.toolName}。${payload.run.summary ?? ""}`.trim();
+}
+
+function normalizeChatAttachments(attachments: ChatMessage["attachments"] | undefined): ChatMessage["attachments"] {
+  return (attachments ?? [])
+    .filter((attachment) => attachment.kind === "image" && /^data:image\/(png|jpeg|webp);base64,/i.test(attachment.dataUrl))
+    .slice(0, 4)
+    .map((attachment) => ({
+      id: attachment.id || `att_${crypto.randomUUID()}`,
+      kind: "image" as const,
+      dataUrl: attachment.dataUrl.slice(0, 12_000_000),
+      mimeType: attachment.mimeType,
+      name: attachment.name?.slice(0, 120),
+    }));
+}
+
 function sendOk(socket: WebSocket, id: string, payload: unknown) {
   sendResponse(socket, { type: "res", id, ok: true, payload });
 }
@@ -1414,6 +1072,23 @@ function sendError(socket: WebSocket, id: string, code: string, message: string)
 
 function sendResponse(socket: WebSocket, response: RpcResponse) {
   socket.send(JSON.stringify(response));
+}
+
+function serializeServerError(error: unknown) {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: redactSensitiveText(error.message),
+      stack: error.stack ? redactSensitiveText(error.stack) : undefined,
+    };
+  }
+  return redactSensitiveText(String(error));
+}
+
+function redactSensitiveText(value: string) {
+  return value
+    .replace(/sk-[A-Za-z0-9_-]{8,}/g, "sk-****")
+    .replace(/(api[-_ ]?key\s*[:=]\s*)[^\s,;]+/gi, "$1****");
 }
 
 function emit(socket: WebSocket, state: ClientState, event: LocalEventName, payload: unknown) {

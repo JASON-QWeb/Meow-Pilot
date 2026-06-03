@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import type { AiProviderId, ProviderConfigureParams, VoiceConfigureParams } from "@pet/protocol";
+import { loadSecret, saveSecret, SecretStoreError } from "./secrets";
+import { findWorkspaceRoot } from "./workspace";
 
 export type AiConfigSource = "env" | "local-config" | "api-md";
 
@@ -42,7 +43,8 @@ export type AiProviderDefinition = {
 
 type LocalAiConfigFile = {
   provider: AiProviderId;
-  apiKey: string;
+  apiKey?: string;
+  apiKeyRef?: string;
   model: string;
   baseUrl?: string;
   updatedAt: string;
@@ -50,7 +52,8 @@ type LocalAiConfigFile = {
 
 type LocalXiaomiVoiceConfigFile = {
   provider: "xiaomi";
-  apiKey: string;
+  apiKey?: string;
+  apiKeyRef?: string;
   baseUrl?: string;
   audioModel?: string;
   ttsModel?: string;
@@ -133,6 +136,22 @@ export function loadAiConfig(): AiProviderConfig | null {
   return loadLocalAiConfig() ?? loadUnifiedEnvConfig() ?? loadFirstProviderEnvConfig();
 }
 
+export function loadAiConfigCandidates(): AiProviderConfig[] {
+  const primary = loadAiConfig();
+  const candidates = [
+    primary,
+    ...AI_PROVIDER_DEFINITIONS.map((definition) => loadAiProviderConfig(definition.id)),
+  ].filter(isDefined);
+
+  const seen = new Set<string>();
+  return candidates.filter((config) => {
+    const key = `${config.provider}:${config.model}:${config.baseUrl ?? ""}:${config.source}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 export function loadAiProviderConfig(provider: AiProviderId): AiProviderConfig | null {
   const unified = loadUnifiedEnvConfig();
   if (unified?.provider === provider) return unified;
@@ -156,16 +175,22 @@ export function saveLocalAiConfig(params: ProviderConfigureParams): AiProviderCo
 
   const file: LocalAiConfigFile = {
     provider,
-    apiKey,
+    apiKeyRef: aiProviderSecretAccount(provider),
     model,
     ...(baseUrl ? { baseUrl } : {}),
     updatedAt: new Date().toISOString(),
   };
+  persistSecret(file.apiKeyRef!, apiKey);
   const path = localConfigPath();
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify(file, null, 2)}\n`, { mode: 0o600 });
+  writeLocalJson(path, file);
 
-  return toConfig(file, "local-config");
+  return {
+    provider,
+    apiKey,
+    model,
+    ...(baseUrl ? { baseUrl } : {}),
+    source: "local-config",
+  };
 }
 
 export function saveLocalXiaomiVoiceConfig(params: VoiceConfigureParams): XiaomiTtsConfig {
@@ -174,9 +199,10 @@ export function saveLocalXiaomiVoiceConfig(params: VoiceConfigureParams): Xiaomi
   }
 
   const apiKey = requiredTrimmed(params.apiKey, "API key");
+  const apiKeyRef = "xiaomi-voice";
   const file: LocalXiaomiVoiceConfigFile = {
     provider: "xiaomi",
-    apiKey,
+    apiKeyRef,
     baseUrl: normalizeOptional(params.baseUrl) ?? DEFAULT_XIAOMI_BASE_URL,
     audioModel: normalizeOptional(params.audioModel) ?? DEFAULT_XIAOMI_AUDIO_MODEL,
     ttsModel: normalizeOptional(params.ttsModel) ?? DEFAULT_XIAOMI_TTS_MODEL,
@@ -184,12 +210,12 @@ export function saveLocalXiaomiVoiceConfig(params: VoiceConfigureParams): Xiaomi
     instruction: normalizeOptional(params.instruction) ?? DEFAULT_XIAOMI_TTS_INSTRUCTION,
     updatedAt: new Date().toISOString(),
   };
+  persistSecret(apiKeyRef, apiKey);
   const path = localXiaomiVoiceConfigPath();
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify(file, null, 2)}\n`, { mode: 0o600 });
+  writeLocalJson(path, file);
 
   return {
-    apiKey: file.apiKey,
+    apiKey,
     baseUrl: file.baseUrl ?? DEFAULT_XIAOMI_BASE_URL,
     model: file.ttsModel ?? DEFAULT_XIAOMI_TTS_MODEL,
     voice: file.voice ?? DEFAULT_XIAOMI_TTS_VOICE,
@@ -310,14 +336,16 @@ function loadLocalAiConfig(): AiProviderConfig | null {
 
   try {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<LocalAiConfigFile>;
-    if (!parsed.provider || !isAiProviderId(parsed.provider) || !parsed.apiKey || !parsed.model) return null;
+    if (!parsed.provider || !isAiProviderId(parsed.provider) || !parsed.model) return null;
     const definition = getProviderDefinition(parsed.provider);
+    const apiKey = resolveLocalSecret(path, parsed, aiProviderSecretAccount(parsed.provider));
+    if (!apiKey) return null;
     const baseUrl = normalizeOptional(parsed.baseUrl) ?? definition.defaultBaseUrl;
     if (parsed.provider === "openai-compatible" && !baseUrl) return null;
 
     return {
       provider: parsed.provider,
-      apiKey: parsed.apiKey.trim(),
+      apiKey,
       model: parsed.model.trim(),
       ...(baseUrl ? { baseUrl } : {}),
       source: "local-config",
@@ -417,9 +445,11 @@ function loadLocalXiaomiVoiceConfig(): ApiProviderConfig | null {
 
   try {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<LocalXiaomiVoiceConfigFile>;
-    if (parsed.provider !== "xiaomi" || !parsed.apiKey) return null;
+    if (parsed.provider !== "xiaomi") return null;
+    const apiKey = resolveLocalSecret(path, parsed, "xiaomi-voice");
+    if (!apiKey) return null;
     return {
-      apiKey: parsed.apiKey.trim(),
+      apiKey,
       baseUrl: normalizeOptional(parsed.baseUrl) ?? DEFAULT_XIAOMI_BASE_URL,
       model: normalizeOptional(parsed.audioModel) ?? DEFAULT_XIAOMI_AUDIO_MODEL,
       source: "local-config",
@@ -468,16 +498,6 @@ function loadDedicatedOpenAiConfig(kind: "TRANSCRIPTION" | "SPEECH", defaultMode
   };
 }
 
-function toConfig(file: LocalAiConfigFile, source: AiConfigSource): AiProviderConfig {
-  return {
-    provider: file.provider,
-    apiKey: file.apiKey,
-    model: file.model,
-    ...(file.baseUrl ? { baseUrl: file.baseUrl } : {}),
-    source,
-  };
-}
-
 function normalizeProvider(provider: string): AiProviderId {
   const normalized = provider.trim().toLowerCase();
   const aliases: Record<string, AiProviderId> = {
@@ -507,7 +527,7 @@ function normalizeOptional(value: string | undefined) {
 
 function readApiMd() {
   const configured = process.env.PET_API_MD_PATH;
-  const candidates = [configured, join(homedir(), "Desktop", "api.md")].filter(Boolean) as string[];
+  const candidates = [configured].filter(Boolean) as string[];
   for (const candidate of candidates) {
     if (existsSync(candidate)) {
       return readFileSync(candidate, "utf8");
@@ -555,6 +575,10 @@ function normalize(value: string) {
   return value.trim().toLowerCase();
 }
 
+function isDefined<T>(value: T | null | undefined): value is T {
+  return value !== null && value !== undefined;
+}
+
 function localConfigPath() {
   return process.env.PET_AI_CONFIG_PATH ?? resolve(findWorkspaceRoot(), ".pet", "ai-provider.json");
 }
@@ -563,15 +587,43 @@ function localXiaomiVoiceConfigPath() {
   return process.env.PET_XIAOMI_VOICE_CONFIG_PATH ?? resolve(findWorkspaceRoot(), ".pet", "xiaomi-voice-provider.json");
 }
 
-function findWorkspaceRoot() {
-  let cursor = process.cwd();
-  for (let depth = 0; depth < 6; depth += 1) {
-    if (existsSync(resolve(cursor, "pnpm-workspace.yaml"))) {
-      return cursor;
-    }
-    const parent = resolve(cursor, "..");
-    if (parent === cursor) break;
-    cursor = parent;
+function aiProviderSecretAccount(provider: AiProviderId) {
+  return `ai-provider:${provider}`;
+}
+
+function persistSecret(account: string, apiKey: string) {
+  try {
+    saveSecret(account, apiKey);
+  } catch (error) {
+    if (error instanceof SecretStoreError) throw error;
+    throw new SecretStoreError("Failed to persist API key securely.", { cause: error });
   }
-  return process.cwd();
+}
+
+function resolveLocalSecret(path: string, parsed: Partial<LocalAiConfigFile | LocalXiaomiVoiceConfigFile>, defaultAccount: string) {
+  const keychainKey = loadSecret(parsed.apiKeyRef ?? defaultAccount);
+  if (keychainKey) return keychainKey.trim();
+
+  const legacyKey = normalizeOptional(parsed.apiKey);
+  if (!legacyKey) return null;
+
+  try {
+    saveSecret(defaultAccount, legacyKey);
+    writeLocalJson(path, {
+      ...parsed,
+      apiKey: undefined,
+      apiKeyRef: defaultAccount,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch {
+    return null;
+  }
+  return legacyKey;
+}
+
+function writeLocalJson(path: string, value: Record<string, unknown>) {
+  const sanitized = Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined));
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${JSON.stringify(sanitized, null, 2)}\n`, { mode: 0o600 });
+  chmodSync(path, 0o600);
 }

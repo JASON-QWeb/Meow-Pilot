@@ -182,11 +182,24 @@ PET_AI_SPEECH_VOICE=...
 │   ├── src/services/          → WebSocket RPC client
 │   └── src-tauri/             → Rust native shell & window management
 ├── packages/agent-runtime/    → Node.js WebSocket Agent service
-│   ├── providers/             → AI SDK & voice integrations
-│   └── storage.ts             → SQLite local persistence
+│   ├── src/kernel/            → AgentKernel, ContextBuilder, tool loop
+│   ├── src/tools/             → ToolRegistry, terminal/file/web/memory/Skill tools
+│   ├── src/memory/            → Long-term memory service, explicit writes, session summaries
+│   ├── src/skills/            → SKILL.md scanning, summary search, quarantine/enable state
+│   ├── src/providers/         → AI SDK & voice integrations
+│   ├── src/storage.ts         → SQLite, FTS5, audit tables, runtime state
+│   └── src/server.ts          → Local WebSocket RPC entrypoint
 ├── packages/protocol/         → Shared frontend/backend type protocol
 └── skills/bundled/            → Built-in skill definitions
 ```
+
+### Agent Runtime Capabilities
+
+- Custom Agent Kernel, without Agent SDK / LangGraph; models request tools through `pet-tool` blocks routed to the local ToolRegistry.
+- `terminal_exec`, `file_read`, `file_write`, `file_patch`, `file_delete`, `file_move`, `web_search`, `memory_*`, `skill_*`, and related tools share one permission and audit path.
+- Read-only workspace operations can run automatically; file writes, deletes, moves, installs, network access, sudo, uploads, and process termination require user approval.
+- Long-term memory uses SQLite + FTS5; Skills load only frontmatter at startup and read full `SKILL.md` only after a search hit.
+- The workspace includes a **Tools & Permissions** page for pending approvals, commands, paths, diffs, risk notes, and the tool audit timeline.
 
 ---
 
@@ -196,7 +209,7 @@ All data is stored entirely locally, with zero cloud dependency:
 
 | File | Description |
 |:--|:--|
-| `.pet/pet-agentd.sqlite` | Sessions, messages, memories, skills, and all data |
+| `.pet/pet-agentd.sqlite` | Sessions, messages, memories, session summaries, Skills, tool runs, permission audits |
 | `.pet/ai-provider.json` | Model API configuration |
 
 ---

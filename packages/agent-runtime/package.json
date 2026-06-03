@@ -14,11 +14,13 @@
     "@ai-sdk/anthropic": "^3.0.80",
     "@ai-sdk/deepseek": "^2.0.35",
     "@ai-sdk/google": "^3.0.80",
+    "@ai-sdk/mcp": "^1.0.45",
     "@ai-sdk/openai": "^3.0.66",
     "@ai-sdk/openai-compatible": "^2.0.48",
     "@ai-sdk/xai": "^3.0.92",
     "@pet/protocol": "workspace:*",
     "ai": "^6.0.191",
+    "cheerio": "^1.2.0",
     "ws": "^8.18.2"
   },
   "devDependencies": {

@@ -14,6 +14,10 @@ import type {
   HelloPayload,
   Memory,
   MemoryProposalEvent,
+  PermissionListPayload,
+  PermissionRequest,
+  PermissionRequestEvent,
+  PermissionResolvePayload,
   PetActivityEvent,
   PetEmotion,
   PetEmotionEvent,
@@ -34,6 +38,9 @@ import type {
   SocialExchangeRecord,
   SurfaceEvent,
   SurfaceSpec,
+  ToolAuditListPayload,
+  ToolRunEvent,
+  ToolRunRecord,
   TokenUsageListPayload,
   TokenUsageSummary,
   UIAction,
@@ -78,6 +85,8 @@ export function usePetAgent() {
   const [account, setAccount] = useState<AccountProfile | null>(null);
   const [friends, setFriends] = useState<FriendSummary[]>([]);
   const [latestExchange, setLatestExchange] = useState<SocialExchangeRecord | null>(null);
+  const [pendingPermissions, setPendingPermissions] = useState<PermissionRequest[]>([]);
+  const [toolRuns, setToolRuns] = useState<ToolRunRecord[]>([]);
 
   const activeSurface = useMemo(
     () => surfaces.find((surface) => surface.id === activeSurfaceId) ?? surfaces[0],
@@ -105,7 +114,7 @@ export function usePetAgent() {
   }, [petActivity.active]);
 
   const refreshSideData = useCallback(async () => {
-    const [memoryPayload, skillPayload, providerPayload, accountPayload, friendPayload, usagePayload, statsPayload] = await Promise.all([
+    const [memoryPayload, skillPayload, providerPayload, accountPayload, friendPayload, usagePayload, statsPayload, permissionPayload, toolAuditPayload] = await Promise.all([
       client.request<{ memories: Memory[] }>("memory.list"),
       client.request<{ skills: SkillSummary[] }>("skill.list"),
       client.request<{ providers: ProviderSummary[] }>("provider.list"),
@@ -113,6 +122,8 @@ export function usePetAgent() {
       client.request<FriendListPayload>("friend.list"),
       client.request<TokenUsageListPayload>("usage.list").catch(() => ({ summaries: [] })),
       client.request<RuntimeStatsPayload>("runtime.stats").catch(() => null),
+      client.request<PermissionListPayload>("permission.list", { status: "pending", limit: 80 }).catch(() => ({ requests: [] })),
+      client.request<ToolAuditListPayload>("tool.audit.list", { limit: 80 }).catch(() => ({ runs: [] })),
     ]);
     setMemories(memoryPayload.memories);
     setSkills(skillPayload.skills);
@@ -121,6 +132,8 @@ export function usePetAgent() {
     setFriends(friendPayload.friends);
     setTokenUsage(usagePayload.summaries);
     setRuntimeStats(statsPayload);
+    setPendingPermissions(permissionPayload.requests);
+    setToolRuns(toolAuditPayload.runs);
   }, [client]);
 
   const refreshRuntimeStats = useCallback(async () => {
@@ -232,6 +245,20 @@ export function usePetAgent() {
       case "memory.proposal": {
         const payload = frame.payload as MemoryProposalEvent;
         setMemoryProposal(payload.proposal);
+        break;
+      }
+      case "permission.request": {
+        const payload = frame.payload as PermissionRequestEvent;
+        setPendingPermissions((current) => [payload.request, ...current.filter((item) => item.id !== payload.request.id)]);
+        break;
+      }
+      case "tool.run": {
+        const payload = frame.payload as ToolRunEvent;
+        setToolRuns((current) => [payload.run, ...current.filter((run) => run.id !== payload.run.id)].slice(0, 80));
+        if (payload.run.permissionId && payload.run.status !== "pending_permission") {
+          setPendingPermissions((current) => current.filter((item) => item.id !== payload.run.permissionId));
+        }
+        void refreshRuntimeStats().catch(() => undefined);
         break;
       }
       default:
@@ -420,6 +447,19 @@ export function usePetAgent() {
     setTokenUsage(usagePayload.summaries);
   }, [client]);
 
+  const resolvePermission = useCallback(
+    async (permissionId: string, approved: boolean) => {
+      const payload = await client.request<PermissionResolvePayload>("permission.resolve", { permissionId, approved });
+      setPendingPermissions((current) => current.filter((request) => request.id !== permissionId || payload.request.status === "pending"));
+      if (payload.run) {
+        setToolRuns((current) => [payload.run!, ...current.filter((run) => run.id !== payload.run!.id)].slice(0, 80));
+      }
+      await refreshRuntimeStats().catch(() => undefined);
+      return payload;
+    },
+    [client, refreshRuntimeStats],
+  );
+
   const saveMemoryText = useCallback(
     async (content: string, id = "mem_manual_profile") => {
       const trimmed = content.trim();
@@ -462,6 +502,8 @@ export function usePetAgent() {
     account,
     friends,
     latestExchange,
+    pendingPermissions,
+    toolRuns,
     sendText,
     sendVoiceTranscript,
     transcribeVoice,
@@ -480,6 +522,7 @@ export function usePetAgent() {
     configureProvider,
     configureVoice,
     refreshTokenUsage,
+    resolvePermission,
     saveMemoryText,
   };
 }

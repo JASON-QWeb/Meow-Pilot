@@ -164,6 +164,41 @@ flowchart LR
 - `UIPlanner`：把模型输出的 UI intent 转成声明式 surface。
 - `LearningLoop`：任务结束后提取经验、提出记忆写入、技能改进或新技能建议。
 
+当前工程落地结构：
+
+```text
+packages/agent-runtime/src/
+├── server.ts                  # 本地 WebSocket RPC 入口，负责会话、事件和直接 surface 快捷能力
+├── kernel/
+│   ├── AgentKernel.ts         # 上下文构建、模型调用、pet-tool 工具循环、最终消息落盘
+│   └── ContextBuilder.ts      # session_window、session_summary、长期记忆、候选 Skill、工具目录
+├── tools/
+│   └── ToolRegistry.ts        # 工具目录、危险命令分类、权限请求、执行、审计记录
+├── memory/
+│   └── MemoryService.ts       # 长期记忆查询、显式记忆写入、记忆提案、会话摘要
+├── skills/
+│   └── SkillService.ts        # SKILL.md frontmatter 扫描、搜索、按需读取、启停/隔离
+├── providers/                 # 模型、语音、图片 cutout provider adapter
+├── storage.ts                 # SQLite schema、FTS5、tool_runs、permissions_audit、skills、session_summaries
+└── *.test.ts                  # 存储、工具审批、记忆检索、Skill 扫描测试
+```
+
+当前权限规则：
+
+- workspace 内只读文件、搜索和只读终端命令可以自动执行。
+- `file_write`、`file_patch`、`file_delete`、`file_move` 永远先生成审批请求；写入和 patch 展示 diff。
+- `terminal_exec` 会分类命令风险；`rm`、`mv`、重定向写入、包管理器、`sudo`、网络上传、进程控制等必须确认。
+- `web_search`、`web_fetch`、`task_create`、`friend_exchange_prepare`、`skill_manage` 默认确认。
+- 所有工具运行写入 `tool_runs`，所有审批写入 `permissions_audit`，前端“工具与权限”页展示待审批和运行时间线。
+
+记忆和 Skill 当前策略：
+
+- 短期上下文由最近消息、一次 run 的工具结果和审批结果组成；长会话由 `session_summaries` 压缩。
+- 用户明确说“记住”会直接写入长期记忆；其他来源优先生成提案或由工具经确认写入。
+- 长期记忆保存 `sourceType/sourceId/confidence/visibility/piiTags/expiresAt` 等元数据，并通过 SQLite FTS5 检索。
+- Skill 启动只扫描 frontmatter；每轮先搜索 3-5 个候选，只有命中后才读取完整 `SKILL.md`。
+- Skill 不能绕过 ToolRegistry；运行、管理和后续文件修改都要复用工具权限链路。
+
 ### 6.2 Provider Adapter
 
 支持两类模式：
