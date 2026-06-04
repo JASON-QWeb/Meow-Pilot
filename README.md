@@ -155,14 +155,7 @@ OPENAI_COMPATIBLE_BASE_URL=https://your-endpoint/v1
 推荐在 App 内「配置 → 语音模型」页面保存语音 API。也可以用环境变量接入已支持的语音服务，按你的服务商实际端点、模型和 voice 填写即可：
 
 ```bash
-# 小米 MiMo / 兼容语音端点
-XIAOMI_API_KEY=...
-XIAOMI_BASE_URL=https://your-voice-endpoint/v1
-XIAOMI_AUDIO_MODEL=...
-XIAOMI_TTS_MODEL=...
-XIAOMI_TTS_VOICE=...
-
-# OpenAI 或兼容 OpenAI STT/TTS 协议的语音端点（可选）
+# OpenAI 或兼容 OpenAI STT/TTS 协议的语音端点
 PET_AI_TRANSCRIPTION_API_KEY=...
 PET_AI_TRANSCRIPTION_BASE_URL=https://your-stt-endpoint/v1
 PET_AI_TRANSCRIPTION_MODEL=...
@@ -178,28 +171,38 @@ PET_AI_SPEECH_VOICE=...
 
 ```
 ├── apps/desktop/              → React + Vite + Tauri 桌面应用
-│   ├── src/features/          → 聊天、宠物、仪表盘、A2UI 组件
+│   ├── src/features/          → 聊天、宠物、仪表盘、A2UI Surface 渲染
 │   ├── src/services/          → WebSocket RPC 客户端
 │   └── src-tauri/             → Rust 原生壳 & 窗口管理
-├── packages/agent-runtime/    → Node.js WebSocket Agent 服务
-│   ├── src/kernel/            → AgentKernel、ContextBuilder、工具循环
-│   ├── src/tools/             → ToolRegistry、终端/文件/网络/记忆/Skill 工具
-│   ├── src/memory/            → 长期记忆服务、显式记忆写入、会话摘要
-│   ├── src/skills/            → SKILL.md 扫描、摘要检索、隔离/启停
-│   ├── src/providers/         → AI SDK & 语音集成
-│   ├── src/storage.ts         → SQLite、FTS5、审计表和运行时状态
-│   └── src/server.ts          → 本地 WebSocket RPC 入口
-├── packages/protocol/         → 前后端共享类型协议
+├── packages/agent-runtime/    → 本地 Node.js Agent Runtime
+│   ├── src/server.ts          → WebSocket RPC、事件广播、任务调度入口
+│   ├── src/kernel/            → ContextBuilder、AgentKernel、计划/工具/反思编排
+│   ├── src/tools/             → ToolRegistry、按需工具发现、权限和审计
+│   ├── src/memory/            → 记忆检索、显式记忆、会话摘要刷新
+│   ├── src/skills/            → SKILL.md frontmatter 扫描、检索和按需读取
+│   ├── src/providers/         → AI SDK Provider、语音和多模态 adapter
+│   ├── src/a2uiProtocol.ts    → A2UI envelope 校验、转换和修复反馈
+│   └── src/storage.ts         → SQLite、FTS5、向量索引、审计和运行时状态
+├── packages/protocol/         → 共享 RPC、事件、SurfaceSpec、A2UI 和工具类型
 └── skills/bundled/            → 内置技能定义
 ```
 
 ### Agent Runtime 能力
 
-- 自研 Agent Kernel，不依赖 Agent SDK / LangGraph；模型通过 `pet-tool` 工具块进入本地 ToolRegistry。
-- `terminal_exec`、`file_read`、`file_write`、`file_patch`、`file_delete`、`file_move`、`web_search`、`memory_*`、`skill_*` 等工具统一走权限和审计。
-- 只读 workspace 操作可自动执行；文件写入、删除、移动、安装、联网、sudo、上传、kill 等操作必须用户确认。
-- 长期记忆使用 SQLite + FTS5；Skill 启动时只扫描 frontmatter，命中后再读取完整 `SKILL.md`。
-- 工作台内置“工具与权限”页面，可查看待审批请求、命令、路径、diff、风险和工具运行时间线。
+- 请求流程：`chat.send` 进入 Runtime 后，先构建上下文，再按任务复杂度决定是否生成 Plan，随后流式调用模型、执行受限工具、解析 A2UI/Surface、落盘消息并广播事件。
+- 成本控制：短问答可跳过 Plan 和 Reflection；复杂任务才启用多轮计划、工具调用和最终反思。
+- 工具编排：默认只暴露核心工具和当前任务相关类别；需要更多能力时先通过 `tool_search` 发现，再把允许的 tool schema 传给模型。
+- 安全执行：工具有并发上限、单工具超时、结果压缩、权限审批和审计记录；写文件、删除、移动、联网、安装、sudo、上传、kill 等操作需要用户确认。
+- Provider 韧性：AI SDK Provider 支持超时、fallback 和短期熔断，避免慢失败 Provider 阻塞每次请求。
+- 记忆与 Skill：长期记忆使用 SQLite FTS5 和本地 `memory_embeddings` 向量索引；会话摘要会随消息增长刷新；Skill 启动只加载 frontmatter，命中后再读取完整 `SKILL.md`。
+
+### A2UI Surface 概览
+
+- 模型需要 UI 时优先调用 `surface_render`、`media_prepare` 等结构化工具，也可以直接输出 A2UI v0.10 envelope。
+- Runtime 会校验 envelope、组件白名单和数据模型路径；失败时把校验错误反馈给模型修复，不渲染不安全或不完整 UI。
+- 校验通过后，A2UI 会转换成 `SurfaceSpec`，通过 `ui.surface.create/update` 推给桌面端，由 `SurfaceRenderer` 渲染为卡片、表格、表单、时间线、图表或媒体播放器。
+- 用户在 Surface 上点击按钮或提交表单时，action 会带 surface id 回到下一轮 Agent turn，继续走同一套权限、工具和记忆链路。
+- 详细流程见 `docs/agent-orchestration.md`。
 
 ---
 

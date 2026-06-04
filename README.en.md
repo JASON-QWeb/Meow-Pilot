@@ -155,13 +155,6 @@ OPENAI_COMPATIBLE_BASE_URL=https://your-endpoint/v1
 We recommend saving voice APIs in the app under **Configuration → Voice Model**. You can also use environment variables to connect supported voice services. Fill in the endpoint, model, and voice according to your provider:
 
 ```bash
-# Xiaomi MiMo / compatible voice endpoint
-XIAOMI_API_KEY=...
-XIAOMI_BASE_URL=https://your-voice-endpoint/v1
-XIAOMI_AUDIO_MODEL=...
-XIAOMI_TTS_MODEL=...
-XIAOMI_TTS_VOICE=...
-
 # OpenAI or OpenAI-compatible STT/TTS voice endpoint (optional)
 PET_AI_TRANSCRIPTION_API_KEY=...
 PET_AI_TRANSCRIPTION_BASE_URL=https://your-stt-endpoint/v1
@@ -178,28 +171,38 @@ PET_AI_SPEECH_VOICE=...
 
 ```
 ├── apps/desktop/              → React + Vite + Tauri desktop app
-│   ├── src/features/          → Chat, pet, dashboard, A2UI components
+│   ├── src/features/          → Chat, pet, dashboard, A2UI Surface rendering
 │   ├── src/services/          → WebSocket RPC client
 │   └── src-tauri/             → Rust native shell & window management
-├── packages/agent-runtime/    → Node.js WebSocket Agent service
-│   ├── src/kernel/            → AgentKernel, ContextBuilder, tool loop
-│   ├── src/tools/             → ToolRegistry, terminal/file/web/memory/Skill tools
-│   ├── src/memory/            → Long-term memory service, explicit writes, session summaries
-│   ├── src/skills/            → SKILL.md scanning, summary search, quarantine/enable state
-│   ├── src/providers/         → AI SDK & voice integrations
-│   ├── src/storage.ts         → SQLite, FTS5, audit tables, runtime state
-│   └── src/server.ts          → Local WebSocket RPC entrypoint
-├── packages/protocol/         → Shared frontend/backend type protocol
+├── packages/agent-runtime/    → Local Node.js Agent Runtime
+│   ├── src/server.ts          → WebSocket RPC, event broadcast, task scheduling entrypoint
+│   ├── src/kernel/            → ContextBuilder, AgentKernel, plan/tool/reflection orchestration
+│   ├── src/tools/             → ToolRegistry, on-demand tool discovery, permissions and audit
+│   ├── src/memory/            → Memory retrieval, explicit memories, session summary refresh
+│   ├── src/skills/            → SKILL.md frontmatter scanning, search, and on-demand loading
+│   ├── src/providers/         → AI SDK providers, voice, and multimodal adapters
+│   ├── src/a2uiProtocol.ts    → A2UI envelope validation, conversion, and repair feedback
+│   └── src/storage.ts         → SQLite, FTS5, vector index, audit, and runtime state
+├── packages/protocol/         → Shared RPC, events, SurfaceSpec, A2UI, and tool types
 └── skills/bundled/            → Built-in skill definitions
 ```
 
 ### Agent Runtime Capabilities
 
-- Custom Agent Kernel, without Agent SDK / LangGraph; models request tools through `pet-tool` blocks routed to the local ToolRegistry.
-- `terminal_exec`, `file_read`, `file_write`, `file_patch`, `file_delete`, `file_move`, `web_search`, `memory_*`, `skill_*`, and related tools share one permission and audit path.
-- Read-only workspace operations can run automatically; file writes, deletes, moves, installs, network access, sudo, uploads, and process termination require user approval.
-- Long-term memory uses SQLite + FTS5; Skills load only frontmatter at startup and read full `SKILL.md` only after a search hit.
-- The workspace includes a **Tools & Permissions** page for pending approvals, commands, paths, diffs, risk notes, and the tool audit timeline.
+- Request flow: `chat.send` enters the Runtime, builds context, decides whether the task needs a Plan, streams the model, executes allowed tools, parses A2UI/Surface output, persists messages, and broadcasts events.
+- Cost control: short Q&A can skip Plan and Reflection; complex work enables multi-step planning, tool calls, and final reflection.
+- Tool orchestration: the model only sees core tools and task-relevant categories by default; it discovers more capabilities with `tool_search`, then receives only the allowed tool schemas.
+- Safe execution: tools have concurrency limits, per-tool timeouts, compressed result backfill, permission approval, and audit records. File writes, deletes, moves, network access, installs, sudo, uploads, and process termination require user approval.
+- Provider resilience: AI SDK providers support timeout, fallback, and short-term circuit breaking so a slow failing provider does not block every request.
+- Memory and Skills: long-term memory uses SQLite FTS5 plus a local `memory_embeddings` vector index; session summaries refresh as conversations grow; Skills load frontmatter first and read full `SKILL.md` only when selected.
+
+### A2UI Surface Overview
+
+- When UI is useful, the model should call structured tools such as `surface_render` or `media_prepare`, or output an A2UI v0.10 envelope directly.
+- The Runtime validates envelopes, component allowlists, and data model paths. Invalid UI is sent back for repair instead of being rendered.
+- Valid A2UI is converted into `SurfaceSpec`, emitted through `ui.surface.create/update`, and rendered by the desktop `SurfaceRenderer` as cards, tables, forms, timelines, charts, or media players.
+- User actions on a Surface return to the next Agent turn with the source surface id, then reuse the same permission, tool, and memory flow.
+- Detailed runtime notes live in `docs/agent-orchestration.md`.
 
 ---
 

@@ -1,6 +1,6 @@
 # 社交系统优先级复评
 
-来源：`docs/reviews/meow_pilot_architecture_todo.md`
+来源：`docs/archive/meow_pilot_architecture_todo.md`
 
 ## 结论
 
