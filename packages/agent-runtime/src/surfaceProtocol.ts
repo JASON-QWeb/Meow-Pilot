@@ -1,8 +1,10 @@
 import type { ComponentNode, SurfaceSpec, UIAction } from "@pet/protocol";
+import { applyA2UIEnvelopes, createA2UIRuntimeState, parseA2UIEnvelopes } from "./a2uiProtocol";
 
 type ParsedSurfaceResponse = {
   text: string;
   surface?: SurfaceSpec;
+  validationErrors?: ReturnType<typeof parseA2UIEnvelopes>["errors"];
 };
 
 type SurfaceBuildContext = {
@@ -29,11 +31,32 @@ const actionIcons = new Set<NonNullable<UIAction["icon"]>>(["play", "pause", "pl
 export function parseAgentSurfaceResponse(rawText: string, context: SurfaceBuildContext): ParsedSurfaceResponse {
   const blocks = extractJsonBlocks(rawText);
   for (const block of blocks) {
-    const parsed = parseJsonObject(block.body);
+    const parsed = parseJsonValue(block.body);
     if (!parsed) continue;
 
-    const answer = readString(parsed, "answer") ?? readString(parsed, "text") ?? readString(parsed, "message");
-    const candidate = readRecord(parsed, "surface") ?? readRecord(parsed, "ui") ?? (looksLikeSurfaceCandidate(parsed) ? parsed : undefined);
+    const parsedRecord = isRecord(parsed) ? parsed : undefined;
+    const answer = parsedRecord ? readString(parsedRecord, "answer") ?? readString(parsedRecord, "text") ?? readString(parsedRecord, "message") : undefined;
+    const a2ui = parseA2UIEnvelopes(parsed);
+    if (a2ui.matched) {
+      const runtime = createA2UIRuntimeState();
+      const results = applyA2UIEnvelopes(runtime, a2ui.envelopes, context.now);
+      const validationErrors = [...a2ui.errors, ...results.flatMap((result) => result.errors)];
+      if (validationErrors.length) {
+        return {
+          text: (answer ?? rawText.replace(block.raw, "")).trim(),
+          validationErrors,
+        };
+      }
+
+      const surface = [...results].reverse().find((result) => result.surface)?.surface;
+      if (surface) {
+        const text = (answer ?? rawText.replace(block.raw, "")).trim() || defaultSurfaceText(surface);
+        return { text: stripImplementationCode(text, context.userText), surface };
+      }
+    }
+
+    if (!parsedRecord) continue;
+    const candidate = readRecord(parsedRecord, "surface") ?? readRecord(parsedRecord, "ui") ?? (looksLikeSurfaceCandidate(parsedRecord) ? parsedRecord : undefined);
     if (!candidate) continue;
 
     const surface = buildSurface(candidate, context);
@@ -402,7 +425,7 @@ function extractJsonBlocks(text: string): JsonBlock[] {
   for (const block of extractFencedBlocks(text)) {
     const language = block.language;
     const body = block.body.trim();
-    if (["pet-surface", "pet-ui", "a2ui", "json", ""].includes(language) && body.startsWith("{")) {
+    if (["pet-surface", "pet-ui", "a2ui", "json", ""].includes(language) && (body.startsWith("{") || body.startsWith("["))) {
       blocks.push({ ...block, body });
     }
   }
@@ -488,10 +511,9 @@ function findJsonObjectEnd(text: string, start: number) {
   return -1;
 }
 
-function parseJsonObject(text: string) {
+function parseJsonValue(text: string) {
   try {
-    const value = JSON.parse(text) as unknown;
-    return isRecord(value) ? value : undefined;
+    return JSON.parse(text) as unknown;
   } catch {
     return undefined;
   }

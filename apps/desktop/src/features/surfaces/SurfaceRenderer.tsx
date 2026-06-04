@@ -4,8 +4,10 @@ import type { CSSProperties } from "react";
 
 type SurfaceRendererProps = {
   surface: SurfaceSpec;
-  onAction: (action: UIAction, surface: SurfaceSpec) => void | Promise<void>;
+  onAction: SurfaceActionHandler;
 };
+
+export type SurfaceActionHandler = (action: UIAction, surface: SurfaceSpec, value?: unknown) => void | Promise<void>;
 
 const actionIcons = {
   play: Play,
@@ -28,7 +30,7 @@ export function GeneratedSurfacePanel({
   activeSurface?: SurfaceSpec;
   activeSurfaceId: string | null;
   onSelectSurface: (id: string) => void;
-  onAction: (action: UIAction, surface: SurfaceSpec) => void | Promise<void>;
+  onAction: SurfaceActionHandler;
 }) {
   return (
     <section className="surfacePanel" aria-label="生成式界面">
@@ -85,7 +87,7 @@ function EmptySurface() {
   );
 }
 
-function ComponentRenderer({ node, surface, onAction }: { node: ComponentNode; surface: SurfaceSpec; onAction: (action: UIAction, surface: SurfaceSpec) => void | Promise<void> }) {
+function ComponentRenderer({ node, surface, onAction }: { node: ComponentNode; surface: SurfaceSpec; onAction: SurfaceActionHandler }) {
   switch (node.kind) {
     case "stack":
       return (
@@ -103,7 +105,7 @@ function ComponentRenderer({ node, surface, onAction }: { node: ComponentNode; s
           {node.items.map((item) => {
             const itemAction = item.actionId ? surface.actions?.find((action) => action.id === item.actionId) : undefined;
             return (
-              <button type="button" key={item.id} disabled={!itemAction} onClick={itemAction ? () => void onAction(itemAction, surface) : undefined}>
+              <button type="button" key={item.id} disabled={!itemAction} onClick={itemAction ? () => void onAction(itemAction, surface, { itemId: item.id, title: item.title, meta: item.meta }) : undefined}>
                 <span>{item.title}</span>
                 {item.description ? <small>{item.description}</small> : null}
                 {item.meta ? <em>{item.meta}</em> : null}
@@ -158,7 +160,7 @@ function ComponentRenderer({ node, surface, onAction }: { node: ComponentNode; s
               {node.controls.map((control) => {
                 const controlAction = surface.actions?.find((action) => action.id === control || action.icon === control);
                 return (
-                  <button type="button" key={control} aria-label={control} onClick={controlAction ? () => void onAction(controlAction, surface) : undefined}>
+                  <button type="button" key={control} aria-label={control} onClick={controlAction ? () => void onAction(controlAction, surface, { control }) : undefined}>
                     {control === "play" ? <Play size={16} /> : control === "pause" ? <Pause size={16} /> : control === "open" ? <ExternalLink size={16} /> : <Plus size={16} />}
                   </button>
                 );
@@ -174,13 +176,25 @@ function ComponentRenderer({ node, surface, onAction }: { node: ComponentNode; s
           className="surfaceForm"
           onSubmit={(event) => {
             event.preventDefault();
-            if (submitAction) void onAction(submitAction, surface);
+            if (submitAction) void onAction(submitAction, surface, formValues(event.currentTarget));
           }}
         >
           {node.fields.map((field) => (
             <label key={field.id}>
               <span>{field.label}</span>
-              {field.type === "textarea" ? <textarea defaultValue={field.value} /> : <input type={field.type === "date" || field.type === "time" ? field.type : "text"} defaultValue={field.value} />}
+              {field.type === "textarea" ? (
+                <textarea defaultValue={field.value} name={field.id} />
+              ) : field.type === "select" ? (
+                <select defaultValue={field.value} name={field.id}>
+                  {(field.options?.length ? field.options : [field.value ?? ""]).filter(Boolean).map((option) => (
+                    <option value={option} key={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input type={field.type === "date" || field.type === "time" ? field.type : "text"} defaultValue={field.value} name={field.id} />
+              )}
             </label>
           ))}
           {submitAction ? <button type="submit">{submitAction.label}</button> : null}
@@ -248,4 +262,12 @@ function PieChartRenderer({ node }: { node: Extract<ComponentNode, { kind: "pie-
 
 function formatChartValue(value: number) {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function formValues(form: HTMLFormElement) {
+  const values: Record<string, string> = {};
+  for (const [key, value] of new FormData(form).entries()) {
+    values[key] = typeof value === "string" ? value : value.name;
+  }
+  return values;
 }

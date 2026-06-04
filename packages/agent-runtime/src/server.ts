@@ -93,6 +93,7 @@ import {
   createWeatherResponse,
   type DirectAgentResponse,
 } from "./directResponses";
+import { applyA2UIEnvelope, createA2UIRuntimeState, surfaceSpecToA2UIEnvelopes } from "./a2uiProtocol";
 
 const PORT = Number(process.env.PET_AGENTD_PORT ?? 4747);
 const HOST = process.env.PET_AGENTD_HOST ?? "127.0.0.1";
@@ -299,6 +300,7 @@ async function handleRequest(socket: WebSocket, state: ClientState, request: Rpc
           methods,
           events,
           surfaceVersion: "0.1",
+          a2uiVersion: "0.10",
         },
       };
       sendOk(socket, request.id, payload);
@@ -1025,28 +1027,41 @@ async function finishDirectAgent(
   emitPet(socket, state, session.id, "thinking", 0.72, "agent-direct-surface");
 
   if (!state.activeRuns.has(runId)) return;
-  if (response.surface) {
-    store.saveSurface(session.id, response.surface);
-    emit(socket, state, "ui.surface.create", { sessionId: session.id, surface: response.surface } satisfies SurfaceEvent);
-  }
+  const emittedSurface = response.surface ? emitA2UISurfaceStream(socket, state, session.id, response.surface) : undefined;
   emit(socket, state, "agent.delta", {
     sessionId: session.id,
     runId,
     text: response.text,
-    ...(response.surface ? { surface: response.surface } : {}),
+    ...(emittedSurface ? { surface: emittedSurface } : {}),
   } satisfies AgentDeltaEvent);
   const assistantMessage: ChatMessage = {
     id: `msg_${crypto.randomUUID()}`,
     role: "assistant",
-    content: response.text.trim() || (response.surface ? "可交互卡片已生成。" : "已处理。"),
+    content: response.text.trim() || (emittedSurface ? "可交互卡片已生成。" : "已处理。"),
     createdAt: new Date().toISOString(),
     runId,
-    ...(response.surface ? { surface: response.surface } : {}),
+    ...(emittedSurface ? { surface: emittedSurface } : {}),
   };
   store.saveMessage(session.id, assistantMessage);
   emit(socket, state, "chat.message", { sessionId: session.id, message: assistantMessage } satisfies ChatMessageEvent);
   emitPet(socket, state, session.id, "speaking", 0.55, "answer-ready");
   emit(socket, state, "agent.lifecycle", { sessionId: session.id, runId, phase: "end" } satisfies AgentLifecycleEvent);
+}
+
+function emitA2UISurfaceStream(socket: WebSocket, state: ClientState, sessionId: string, surface: SurfaceSpec) {
+  const runtime = createA2UIRuntimeState();
+  let latest: SurfaceSpec | undefined;
+  for (const envelope of surfaceSpecToA2UIEnvelopes(surface)) {
+    const result = applyA2UIEnvelope(runtime, envelope, surface.createdAt);
+    if (result.errors.length || !result.surface) {
+      logger.warn("a2ui.envelope_failed", { surfaceId: surface.id, errors: result.errors });
+      continue;
+    }
+    latest = result.surface;
+    store.saveSurface(sessionId, latest);
+    emit(socket, state, result.created ? "ui.surface.create" : "ui.surface.update", { sessionId, surface: latest } satisfies SurfaceEvent);
+  }
+  return latest ?? surface;
 }
 
 async function handleScheduledTaskDue(event: { task: TaskChangedEvent["task"]; nextTask: TaskChangedEvent["task"] }) {
@@ -1078,10 +1093,19 @@ function buildSurfaceActionAgentText(text: string, surfaceAction: NonNullable<Ch
   const actionLabel = action?.label ?? text;
   const surfaceTitle = surface?.title ?? surface?.intent ?? surfaceAction.surfaceId;
   const surfaceContext = surface ? `\n当前卡片摘要：${JSON.stringify(compactSurfaceForPrompt(surface))}` : "";
+  const actionContext = {
+    actionId: surfaceAction.actionId,
+    name: surfaceAction.name ?? surfaceAction.actionId,
+    sourceComponentId: surfaceAction.sourceComponentId,
+    context: surfaceAction.context,
+    value: surfaceAction.value,
+    dataModel: surfaceAction.dataModel,
+  };
   return [
     `内部 UI 事件：用户点击了「${surfaceTitle}」卡片上的「${actionLabel}」。`,
     "请基于这个动作和当前卡片继续回复，不要在回复中复述这条内部事件。",
-    "如果需要可交互卡片，只输出 pet-surface fenced JSON block；如果不需要卡片，直接自然语言回答。",
+    "如果需要更新界面，优先返回 A2UI v0.10 风格 JSON envelope：createSurface、updateComponents、updateDataModel 或 deleteSurface；也可以继续使用 pet-surface 兼容格式。如果不需要卡片，直接自然语言回答。",
+    `UI action 载荷：${JSON.stringify(actionContext)}`,
     surfaceContext,
   ]
     .filter(Boolean)

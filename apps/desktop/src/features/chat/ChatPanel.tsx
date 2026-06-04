@@ -2,7 +2,7 @@ import { ExternalLink, Mic, Music, Plus, Send, Square, Trash2, Video, Volume2 } 
 import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import type { ChatMessage, ChatSendPayload, MediaPlayerNode, SessionSummary, SurfaceSpec, UIAction, VoiceSpeakPayload, VoiceTranscribePayload } from "@pet/protocol";
-import { SurfaceRenderer } from "../surfaces/SurfaceRenderer";
+import { SurfaceRenderer, type SurfaceActionHandler } from "../surfaces/SurfaceRenderer";
 import { useVirtualWindow } from "../../hooks/useVirtualWindow";
 
 type ChatPanelProps = {
@@ -19,7 +19,7 @@ type ChatPanelProps = {
   onSendVoice: (text: string) => Promise<ChatSendPayload | undefined>;
   onTranscribe: (audioData: string) => Promise<VoiceTranscribePayload>;
   onSpeak: (text: string) => Promise<VoiceSpeakPayload>;
-  onSurfaceAction: (action: UIAction, surface: SurfaceSpec) => void | Promise<void>;
+  onSurfaceAction: SurfaceActionHandler;
   isAgentRunning?: boolean;
 };
 
@@ -603,7 +603,7 @@ function renderInlineMarkdown(text: string, keyPrefix: string) {
   return nodes.map((node, index) => <Fragment key={`${keyPrefix}-frag-${index}`}>{node}</Fragment>);
 }
 
-function InlineSurface({ surface, onAction }: { surface: SurfaceSpec; onAction: (action: UIAction, surface: SurfaceSpec) => void | Promise<void> }) {
+function InlineSurface({ surface, onAction }: { surface: SurfaceSpec; onAction: SurfaceActionHandler }) {
   if (surface.layout.kind !== "media-player") {
     return (
       <div className="inlineGeneratedSurface">

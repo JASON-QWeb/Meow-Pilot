@@ -101,6 +101,7 @@ export type HelloPayload = {
     methods: LocalRpcMethod[];
     events: LocalEventName[];
     surfaceVersion: "0.1";
+    a2uiVersion?: A2UIVersion;
   };
 };
 
@@ -155,6 +156,10 @@ export type ChatSendParams = {
   surfaceAction?: {
     surfaceId: string;
     actionId: string;
+    name?: string;
+    sourceComponentId?: string;
+    context?: Record<string, unknown>;
+    dataModel?: Record<string, unknown>;
     value?: unknown;
   };
 };
@@ -541,11 +546,78 @@ export type UIAction = {
   label: string;
   style?: "primary" | "secondary" | "danger";
   icon?: "play" | "pause" | "plus" | "check" | "search" | "calendar" | "external";
+  sourceComponentId?: string;
+  context?: Record<string, unknown>;
+  sendDataModel?: boolean;
+  wantResponse?: boolean;
 };
 
 export type SurfaceEvent = {
   sessionId: string;
   surface: SurfaceSpec;
+};
+
+export type A2UIVersion = "0.10";
+
+export type A2UIEnvelope =
+  | A2UICreateSurfaceEnvelope
+  | A2UIUpdateComponentsEnvelope
+  | A2UIUpdateDataModelEnvelope
+  | A2UIDeleteSurfaceEnvelope;
+
+export type A2UICreateSurfaceEnvelope = {
+  version?: A2UIVersion;
+  type: "createSurface";
+  surfaceId: string;
+  title?: string;
+  intent?: SurfaceSpec["intent"];
+  surfaceType?: SurfaceSpec["type"];
+  root?: string;
+  sendDataModel?: boolean;
+  createdAt?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type A2UIUpdateComponentsEnvelope = {
+  version?: A2UIVersion;
+  type: "updateComponents";
+  surfaceId: string;
+  root?: string;
+  components: A2UIComponent[];
+  actions?: UIAction[];
+};
+
+export type A2UIUpdateDataModelEnvelope = {
+  version?: A2UIVersion;
+  type: "updateDataModel";
+  surfaceId: string;
+  path?: string;
+  value: unknown;
+  mode?: "replace" | "merge";
+};
+
+export type A2UIDeleteSurfaceEnvelope = {
+  version?: A2UIVersion;
+  type: "deleteSurface";
+  surfaceId: string;
+};
+
+export type A2UIComponent = {
+  id: string;
+  component?: Record<string, unknown>;
+  type?: string;
+  props?: Record<string, unknown>;
+  kind?: ComponentNode["kind"] | "Button" | "Card" | "Column" | "Row" | "Text";
+  children?: unknown;
+  child?: unknown;
+  [key: string]: unknown;
+};
+
+export type A2UIValidationError = {
+  code: "VALIDATION_FAILED";
+  surfaceId: string;
+  path: string;
+  message: string;
 };
 
 export type Memory = {

@@ -12,6 +12,7 @@ import type {
 } from "@pet/protocol";
 import type { ModelMessage, ToolCallPart, ToolResultPart } from "ai";
 import { parseAgentSurfaceResponse } from "../surfaceProtocol";
+import { applyA2UIEnvelope, createA2UIRuntimeState, formatA2UIValidationFeedback, surfaceSpecToA2UIEnvelopes } from "../a2uiProtocol";
 import {
   chatMessagesToModelMessages,
   generateAgentPlanWithAiSdk,
@@ -58,6 +59,7 @@ type KernelEventMap = {
   "pet.emotion": PetEmotionEvent;
   "pet.activity": PetActivityEvent;
   "ui.surface.create": SurfaceEvent;
+  "ui.surface.update": SurfaceEvent;
 };
 
 type AgentKernelOptions = {
@@ -177,6 +179,16 @@ export class AgentKernel {
 
       if (!step.toolCalls.length) {
         const parsed = parseAgentSurfaceResponse(step.text, { now: new Date().toISOString(), userText });
+        if (parsed.validationErrors?.length) {
+          const repaired = await this.repairA2UI(instructions, messages, step.text, parsed.validationErrors, userText, runOptions.abortSignal);
+          if (repaired && !repaired.validationErrors?.length) {
+            finalText = repaired.text;
+            finalSurface = repaired.surface;
+            break;
+          }
+          finalText = parsed.text || `A2UI JSON 校验失败，已跳过渲染：${parsed.validationErrors[0]?.message ?? "格式不符合宿主协议。"}`;
+          break;
+        }
         finalText = parsed.text || step.text.trim();
         finalSurface = parsed.surface;
         break;
@@ -254,6 +266,28 @@ export class AgentKernel {
     }
   }
 
+  private async repairA2UI(
+    instructions: string,
+    messages: ModelMessage[],
+    invalidText: string,
+    errors: NonNullable<ReturnType<typeof parseAgentSurfaceResponse>["validationErrors"]>,
+    userText: string,
+    abortSignal?: AbortSignal,
+  ) {
+    try {
+      const repairMessages: ModelMessage[] = [
+        ...messages,
+        { role: "assistant", content: invalidText },
+        { role: "user", content: formatA2UIValidationFeedback(errors) },
+      ];
+      const step = await this.generate(instructions, repairMessages, new Set(), abortSignal);
+      if (!step || step.toolCalls.length) return null;
+      return parseAgentSurfaceResponse(step.text, { now: new Date().toISOString(), userText });
+    } catch {
+      return null;
+    }
+  }
+
   private emitPlan(sessionId: string, runId: string, plan: AgentPlan) {
     if (!plan.steps.length) return;
     this.options.emit("agent.lifecycle", {
@@ -297,29 +331,39 @@ export class AgentKernel {
   }
 
   private finish(session: RuntimeSession, runId: string, text: string, surface: SurfaceSpec | undefined, streamedText: string) {
-    if (surface) {
-      this.options.store.saveSurface(session.id, surface);
-      this.options.emit("ui.surface.create", { sessionId: session.id, surface });
-    }
+    const emittedSurface = surface ? this.emitSurfaceStream(session.id, surface) : undefined;
 
     const finalDelta = streamedText && text.startsWith(streamedText) ? text.slice(streamedText.length) : text;
-    if (finalDelta || surface) {
-      this.options.emit("agent.delta", { sessionId: session.id, runId, text: finalDelta, ...(surface ? { surface } : {}) });
+    if (finalDelta || emittedSurface) {
+      this.options.emit("agent.delta", { sessionId: session.id, runId, text: finalDelta, ...(emittedSurface ? { surface: emittedSurface } : {}) });
     }
 
     const assistantMessage: ChatMessage = {
       id: `msg_${crypto.randomUUID()}`,
       role: "assistant",
-      content: text.trim() || (surface ? "可交互卡片已生成。" : "模型没有返回文本。"),
+      content: text.trim() || (emittedSurface ? "可交互卡片已生成。" : "模型没有返回文本。"),
       createdAt: new Date().toISOString(),
       runId,
-      ...(surface ? { surface } : {}),
+      ...(emittedSurface ? { surface: emittedSurface } : {}),
     };
     this.options.store.saveMessage(session.id, assistantMessage);
     this.options.emit("agent.lifecycle", { sessionId: session.id, runId, phase: "end" });
     this.options.emit("pet.emotion", { sessionId: session.id, emotion: "speaking", intensity: 0.55, reason: "answer-ready" });
     this.options.emit("pet.activity", { sessionId: session.id, activity: restActivity(), active: false, reason: "turn-complete" });
     return assistantMessage;
+  }
+
+  private emitSurfaceStream(sessionId: string, surface: SurfaceSpec) {
+    const runtime = createA2UIRuntimeState();
+    let latest: SurfaceSpec | undefined;
+    for (const envelope of surfaceSpecToA2UIEnvelopes(surface)) {
+      const result = applyA2UIEnvelope(runtime, envelope, surface.createdAt);
+      if (result.errors.length || !result.surface) continue;
+      latest = result.surface;
+      this.options.store.saveSurface(sessionId, latest);
+      this.options.emit(result.created ? "ui.surface.create" : "ui.surface.update", { sessionId, surface: latest });
+    }
+    return latest ?? surface;
   }
 }
 

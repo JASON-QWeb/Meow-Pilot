@@ -7,6 +7,7 @@ import type {
   AgentLifecycleEvent,
   ChatMessage,
   ChatMessageEvent,
+  ChatSendParams,
   ChatSendPayload,
   FriendAddPayload,
   FriendListPayload,
@@ -294,11 +295,7 @@ export function usePetAgent() {
     async (
       text: string,
       source: "text" | "voice" | "ui" = "text",
-      surfaceAction?: {
-        surfaceId: string;
-        actionId: string;
-        value?: unknown;
-      },
+      surfaceAction?: ChatSendParams["surfaceAction"],
     ) => {
       const trimmed = text.trim();
       if (!trimmed || !sessionId) return;
@@ -329,7 +326,7 @@ export function usePetAgent() {
   );
 
   const handleSurfaceAction = useCallback(
-    async (action: UIAction, surface: SurfaceSpec) => {
+    async (action: UIAction, surface: SurfaceSpec, value?: unknown) => {
       if (action.id === "commit-memory" && memoryProposal) {
         await client.request("memory.commit", { proposal: memoryProposal });
         setMemories((current) => [memoryProposal, ...current.filter((memory) => memory.id !== memoryProposal.id)]);
@@ -346,6 +343,11 @@ export function usePetAgent() {
       await sendMessage(action.label, "ui", {
         surfaceId: surface.id,
         actionId: action.id,
+        name: action.id,
+        sourceComponentId: action.sourceComponentId,
+        context: action.context,
+        dataModel: surface.data,
+        value,
       });
     },
     [client, memoryProposal, sendMessage],
