@@ -91,6 +91,10 @@ export type AiSdkSpeech = {
 };
 
 const MAX_SPEECH_CHARACTERS = 1200;
+const PROVIDER_TIMEOUT_MS = Number(process.env.PET_AI_PROVIDER_TIMEOUT_MS ?? 30_000);
+const PROVIDER_CIRCUIT_FAILURES = Number(process.env.PET_AI_PROVIDER_CIRCUIT_FAILURES ?? 2);
+const PROVIDER_CIRCUIT_COOLDOWN_MS = Number(process.env.PET_AI_PROVIDER_CIRCUIT_COOLDOWN_MS ?? 60_000);
+const providerHealth = new Map<string, { failures: number; skipUntil: number }>();
 const SYSTEM_PROMPT = `你是一个产品化桌面宠物 Agent 的大脑。回答要简洁、有温度、可执行。不要声称你已经真实打开外部应用，除非工具结果明确说明。中文优先。
 
 这不是代码生成聊天。用户请求“卡片、界面、组件、表格、表单、看板、日程、任务、查询结果、播放器”等可视化结果，且可交互 UI 能明显提升可读性或操作性时，生成宿主可渲染的声明式 UI 数据，而不是 React/Vue/HTML/CSS/JSX/TSX 代码。普通问答不要硬塞卡片。
@@ -124,15 +128,22 @@ export async function streamAgentStepWithAiSdk(params: {
   if (!configs.length) return null;
 
   let lastError: unknown;
-  for (const config of configs) {
+  const candidates = availableConfigs(configs);
+  for (const config of candidates) {
     let emitted = false;
+    const timeout = withProviderTimeout(params.abortSignal);
     try {
-      return await runAgentStep(config, params, () => {
+      const result = await runAgentStep(config, { ...params, abortSignal: timeout.signal }, () => {
         emitted = true;
       });
+      markProviderSuccess(config);
+      return result;
     } catch (error) {
       lastError = error;
+      if (!params.abortSignal?.aborted) markProviderFailure(config);
       if (params.abortSignal?.aborted || emitted) throw error;
+    } finally {
+      timeout.cleanup();
     }
   }
 
@@ -278,7 +289,9 @@ async function generateStructuredWithFallback<T>(params: {
   if (!configs.length) return null;
 
   let lastError: unknown;
-  for (const config of configs) {
+  const candidates = availableConfigs(configs);
+  for (const config of candidates) {
+    const timeout = withProviderTimeout(params.abortSignal);
     try {
       const result = await generateObject({
         model: createLanguageModel(config),
@@ -289,17 +302,62 @@ async function generateStructuredWithFallback<T>(params: {
         prompt: params.prompt,
         maxOutputTokens: 900,
         temperature: 0,
-        abortSignal: params.abortSignal,
+        abortSignal: timeout.signal,
       });
+      markProviderSuccess(config);
       return result.object as T;
     } catch (error) {
       lastError = error;
+      if (!params.abortSignal?.aborted) markProviderFailure(config);
       if (params.abortSignal?.aborted) throw error;
+    } finally {
+      timeout.cleanup();
     }
   }
 
   if (lastError) throw lastError instanceof Error ? lastError : new Error("Structured generation failed.");
   return null;
+}
+
+function availableConfigs(configs: AiProviderConfig[]) {
+  const now = Date.now();
+  const available = configs.filter((config) => {
+    const health = providerHealth.get(providerKey(config));
+    return !health?.skipUntil || health.skipUntil <= now;
+  });
+  return available.length ? available : configs;
+}
+
+function markProviderSuccess(config: AiProviderConfig) {
+  providerHealth.delete(providerKey(config));
+}
+
+function markProviderFailure(config: AiProviderConfig) {
+  const key = providerKey(config);
+  const current = providerHealth.get(key) ?? { failures: 0, skipUntil: 0 };
+  const failures = current.failures + 1;
+  const skipUntil = failures >= PROVIDER_CIRCUIT_FAILURES ? Date.now() + PROVIDER_CIRCUIT_COOLDOWN_MS : 0;
+  providerHealth.set(key, { failures, skipUntil });
+}
+
+function providerKey(config: AiProviderConfig) {
+  return `${config.provider}:${config.model}:${config.baseUrl ?? ""}`;
+}
+
+function withProviderTimeout(parent?: AbortSignal) {
+  const controller = new AbortController();
+  const timeoutMs = Number.isFinite(PROVIDER_TIMEOUT_MS) && PROVIDER_TIMEOUT_MS > 0 ? PROVIDER_TIMEOUT_MS : 30_000;
+  const timeout = setTimeout(() => controller.abort(new Error(`AI provider timed out after ${timeoutMs} ms.`)), timeoutMs);
+  const onAbort = () => controller.abort(parent?.reason);
+  if (parent?.aborted) onAbort();
+  else parent?.addEventListener("abort", onAbort, { once: true });
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timeout);
+      parent?.removeEventListener("abort", onAbort);
+    },
+  };
 }
 
 async function runAgentStep(

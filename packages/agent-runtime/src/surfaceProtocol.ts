@@ -399,19 +399,93 @@ function stripImplementationCode(text: string, userText: string) {
 
 function extractJsonBlocks(text: string): JsonBlock[] {
   const blocks: JsonBlock[] = [];
-  const codeFence = /```([a-zA-Z0-9_-]*)\s*([\s\S]*?)```/g;
-  let match: RegExpExecArray | null;
-  while ((match = codeFence.exec(text))) {
-    const language = match[1]?.trim().toLowerCase() ?? "";
-    const body = match[2]?.trim() ?? "";
+  for (const block of extractFencedBlocks(text)) {
+    const language = block.language;
+    const body = block.body.trim();
     if (["pet-surface", "pet-ui", "a2ui", "json", ""].includes(language) && body.startsWith("{")) {
-      blocks.push({ raw: match[0], body, language });
+      blocks.push({ ...block, body });
     }
   }
-  if (!blocks.length && text.trim().startsWith("{")) {
-    blocks.push({ raw: text, body: text.trim(), language: "json" });
+  if (!blocks.length) {
+    blocks.push(...extractBalancedJsonBlocks(text));
   }
   return blocks;
+}
+
+function extractFencedBlocks(text: string): JsonBlock[] {
+  const blocks: JsonBlock[] = [];
+  let index = 0;
+  while (index < text.length) {
+    const fenceStart = findFenceAtLineStart(text, index);
+    if (fenceStart < 0) break;
+    const headerEnd = text.indexOf("\n", fenceStart);
+    if (headerEnd < 0) break;
+    const header = text.slice(fenceStart + 3, headerEnd).trim().toLowerCase();
+    const bodyStart = headerEnd + 1;
+    const fenceEnd = findFenceAtLineStart(text, bodyStart);
+    if (fenceEnd < 0) break;
+    const raw = text.slice(fenceStart, fenceEnd + 3);
+    blocks.push({
+      raw,
+      body: text.slice(bodyStart, fenceEnd).trim(),
+      language: header,
+    });
+    index = fenceEnd + 3;
+  }
+  return blocks;
+}
+
+function findFenceAtLineStart(text: string, from: number) {
+  let index = from;
+  while (index >= 0 && index < text.length) {
+    const candidate = text.indexOf("```", index);
+    if (candidate < 0) return -1;
+    const atLineStart = candidate === 0 || text[candidate - 1] === "\n";
+    if (atLineStart) return candidate;
+    index = candidate + 3;
+  }
+  return -1;
+}
+
+function extractBalancedJsonBlocks(text: string): JsonBlock[] {
+  const blocks: JsonBlock[] = [];
+  for (let index = 0; index < text.length; index += 1) {
+    if (text[index] !== "{") continue;
+    const end = findJsonObjectEnd(text, index);
+    if (end < 0) continue;
+    const raw = text.slice(index, end + 1);
+    blocks.push({ raw, body: raw.trim(), language: "json" });
+    index = end;
+  }
+  return blocks;
+}
+
+function findJsonObjectEnd(text: string, start: number) {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === "\"") {
+      inString = true;
+    } else if (char === "{") {
+      depth += 1;
+    } else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
 }
 
 function parseJsonObject(text: string) {

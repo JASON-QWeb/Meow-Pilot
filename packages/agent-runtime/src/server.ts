@@ -96,6 +96,7 @@ import {
 
 const PORT = Number(process.env.PET_AGENTD_PORT ?? 4747);
 const HOST = process.env.PET_AGENTD_HOST ?? "127.0.0.1";
+const WS_HEARTBEAT_MS = Number(process.env.PET_WS_HEARTBEAT_MS ?? 30_000);
 const clients = new Map<WebSocket, ClientState>();
 const activeSessionRuns = new Map<string, { runId: string; controller: AbortController }>();
 const pendingAgentContinuations = new Map<string, PendingAgentContinuation>();
@@ -106,6 +107,7 @@ type ClientState = {
   activeRuns: Map<string, AbortController>;
   rateLimitStartedAt: number;
   rateLimitCount: number;
+  isAlive: boolean;
 };
 
 type AgentRunOptions = {
@@ -129,7 +131,13 @@ const toolRegistry = new ToolRegistry(store, memoryService, skillService, undefi
   onSurfaceUpdated: (sessionId, surface) => broadcast("ui.surface.update", { sessionId, surface } satisfies SurfaceEvent),
 });
 void loadConfiguredMcpTools(toolRegistry);
-const contextBuilder = new ContextBuilder(store, memoryService, skillService, () => toolRegistry.catalog());
+const contextBuilder = new ContextBuilder(
+  store,
+  memoryService,
+  skillService,
+  () => toolRegistry.catalog(),
+  (userText) => toolRegistry.promptCatalog(userText),
+);
 const taskScheduler = new TaskScheduler(store, handleScheduledTaskDue);
 
 const methods: LocalRpcMethod[] = [
@@ -192,8 +200,12 @@ const events: LocalEventName[] = [
 const wss = new WebSocketServer({ host: HOST, port: PORT });
 
 wss.on("connection", (socket) => {
-  const state: ClientState = { seq: 0, activeRuns: new Map(), rateLimitStartedAt: Date.now(), rateLimitCount: 0 };
+  const state: ClientState = { seq: 0, activeRuns: new Map(), rateLimitStartedAt: Date.now(), rateLimitCount: 0, isAlive: true };
   clients.set(socket, state);
+
+  socket.on("pong", () => {
+    state.isAlive = true;
+  });
 
   socket.on("message", (raw) => {
     void handleRawFrame(socket, state, raw.toString());
@@ -208,6 +220,24 @@ wss.on("connection", (socket) => {
 wss.on("listening", () => {
   logger.info("agentd.listening", { host: HOST, port: PORT });
   taskScheduler.start();
+});
+
+const heartbeatTimer = setInterval(() => {
+  for (const [socket, state] of clients) {
+    if (socket.readyState !== 1) continue;
+    if (!state.isAlive) {
+      cancelActiveRuns(state);
+      clients.delete(socket);
+      socket.terminate();
+      continue;
+    }
+    state.isAlive = false;
+    socket.ping();
+  }
+}, Number.isFinite(WS_HEARTBEAT_MS) && WS_HEARTBEAT_MS > 0 ? WS_HEARTBEAT_MS : 30_000);
+
+wss.on("close", () => {
+  clearInterval(heartbeatTimer);
 });
 
 async function handleRawFrame(socket: WebSocket, state: ClientState, raw: string) {

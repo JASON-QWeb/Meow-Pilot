@@ -10,6 +10,10 @@ export class ContextBuilder {
     private readonly memory: MemoryService,
     private readonly skills: SkillService,
     private readonly tools: () => ToolSummary[],
+    private readonly promptTools?: (userText: string) => {
+      selected: ToolSummary[];
+      categories: Array<{ category: string; total: number; selected: number }>;
+    },
   ) {}
 
   async build(params: { session: RuntimeSession; userText: string; history: ChatMessage[]; abortSignal?: AbortSignal }) {
@@ -18,15 +22,21 @@ export class ContextBuilder {
     const relevantMemories = takeWithinBudget(this.memory.query(params.userText, undefined, 12), tokenBudget * 0.18, (memory) => memory.content);
     const candidateSkills = takeWithinBudget(this.skills.search(params.userText, 8), tokenBudget * 0.12, (skill) => `${skill.name} ${skill.description}`);
     const recentHistory = trimHistory(params.history.filter((message) => message.role !== "system"), tokenBudget * 0.38);
+    const toolContext = this.promptTools?.(params.userText) ?? fallbackToolContext(this.tools());
+    const selectedTools = takeWithinBudget(toolContext.selected, tokenBudget * 0.1, formatTool);
 
     const context = [
       "你是 Meow Pilot 的本地桌面宠物 Agent Runtime。",
       "你可以直接回答，也可以通过原生工具调用请求 runtime 执行工具。危险工具会先请求用户确认。",
       "不要声称已经执行工具，除非工具结果明确返回成功。",
       "如果工具返回 pending_permission，说明正在等待用户授权；不要重复请求同一个危险操作。",
+      "工具默认只按当前任务暴露一小组；如果缺少具体工具，先调用 tool_search 按类别或任务关键词发现。",
       "",
-      "可用工具：",
-      ...this.tools().map((tool) => `- ${tool.name} (${tool.permissionLevel}): ${tool.description}`),
+      "默认可用工具：",
+      ...selectedTools.map(formatTool),
+      "",
+      "工具类别索引：",
+      ...toolContext.categories.map((item) => `- ${item.category}: 默认 ${item.selected}/${item.total} 个；需要更多时用 tool_search 查询。`),
       "",
       sessionSummary ? `会话摘要：\n${sessionSummary}` : "",
       relevantMemories.length ? `相关长期记忆：\n${relevantMemories.map((memory) => `- [${memory.kind}/${memory.scope}] ${memory.content}`).join("\n")}` : "",
@@ -48,6 +58,24 @@ function formatSkills(skills: SkillSummary[]) {
   return skills
     .map((skill) => `- ${skill.name}: ${skill.description} 权限=${skill.permissions.join(", ") || "none"}`)
     .join("\n");
+}
+
+function formatTool(tool: ToolSummary) {
+  return `- ${tool.name} (${tool.category}/${tool.permissionLevel}): ${tool.description}`;
+}
+
+function fallbackToolContext(tools: ToolSummary[]) {
+  const categories = new Map<string, { total: number; selected: number }>();
+  for (const tool of tools) {
+    const current = categories.get(tool.category) ?? { total: 0, selected: 0 };
+    current.total += 1;
+    current.selected += 1;
+    categories.set(tool.category, current);
+  }
+  return {
+    selected: tools,
+    categories: [...categories.entries()].map(([category, count]) => ({ category, ...count })),
+  };
 }
 
 function trimHistory(history: ChatMessage[], budget: number) {

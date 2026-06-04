@@ -131,6 +131,12 @@ type MessageContentRow = {
 
 type SessionSummaryTextRow = {
   summary: string;
+  message_count?: number | null;
+  updated_at?: string | null;
+};
+
+type MemoryEmbeddingRow = MemoryRow & {
+  vector_json: string;
 };
 
 type ToolRunRow = {
@@ -197,6 +203,7 @@ type SkillRunRow = {
 
 const defaultDbPath = resolve(findWorkspaceRoot(), ".pet", "pet-agentd.sqlite");
 const DEFAULT_MEMORY_LIMIT = 1_000;
+const MEMORY_EMBEDDING_DIMENSIONS = 192;
 const legacyTemplateAssistantMessages = [
   "我准备了一个音乐播放面板。当前走本地技能外壳，接入 Spotify / Apple Music / 本地媒体后会直接播放和管理队列。",
   "视频面板已准备好。这里可以承载 YouTube、Bilibili 或本地文件播放，并挂接字幕、摘要和笔记技能。",
@@ -359,6 +366,8 @@ export class PetStore {
     const filterKinds = (memory: Memory) => (kindSet.size ? kindSet.has(memory.kind) : true);
 
     if (query?.trim()) {
+      const semanticMatches = this.queryMemoryEmbeddings(query, normalizedLimit * 2)
+        .filter(filterKinds);
       const escaped = query
         .trim()
         .split(/\s+/)
@@ -381,17 +390,18 @@ export class PetStore {
             `,
           )
           .all(escaped || query.trim(), new Date().toISOString(), normalizedLimit * 2) as MemoryRow[];
-        const matches = rows.map(toMemory).filter(filterKinds).slice(0, normalizedLimit);
-        if (matches.length) return matches;
+        const matches = rows.map(toMemory).filter(filterKinds);
+        const combined = dedupeMemories([...semanticMatches, ...matches]).slice(0, normalizedLimit);
+        if (combined.length) return combined;
       } catch {
         // Fallback below if FTS is unavailable or query syntax is too broad.
       }
 
       const needle = query.trim().toLowerCase();
-      return this.listMemories()
+      const literalMatches = this.listMemories()
         .filter(filterKinds)
-        .filter((memory) => `${memory.content} ${memory.summary ?? ""}`.toLowerCase().includes(needle))
-        .slice(0, normalizedLimit);
+        .filter((memory) => `${memory.content} ${memory.summary ?? ""}`.toLowerCase().includes(needle));
+      return dedupeMemories([...semanticMatches, ...literalMatches]).slice(0, normalizedLimit);
     }
 
     return this.listMemories().filter(filterKinds).slice(0, normalizedLimit);
@@ -435,6 +445,7 @@ export class PetStore {
         savedMemory.expiresAt ?? null,
       );
     this.indexMemory(savedMemory);
+    this.indexMemoryEmbedding(savedMemory);
     this.enforceMemoryLimit();
   }
 
@@ -445,16 +456,20 @@ export class PetStore {
   }
 
   getSessionSummary(sessionId: string): string | null {
-    const row = this.db
-      .prepare("SELECT summary FROM session_summaries WHERE session_id = ? ORDER BY updated_at DESC LIMIT 1")
-      .get(sessionId) as SessionSummaryTextRow | undefined;
-    return row?.summary ?? null;
+    return this.getSessionSummaryRecord(sessionId)?.summary ?? null;
   }
 
-  saveSessionSummary(sessionId: string, summary: string, now = new Date().toISOString()) {
+  getSessionSummaryRecord(sessionId: string): { summary: string; messageCount: number; updatedAt?: string } | null {
+    const row = this.db
+      .prepare("SELECT summary, message_count, updated_at FROM session_summaries WHERE session_id = ? ORDER BY updated_at DESC LIMIT 1")
+      .get(sessionId) as SessionSummaryTextRow | undefined;
+    return row ? { summary: row.summary, messageCount: row.message_count ?? 0, updatedAt: row.updated_at ?? undefined } : null;
+  }
+
+  saveSessionSummary(sessionId: string, summary: string, messageCount = 0, now = new Date().toISOString()) {
     this.db
-      .prepare("INSERT OR REPLACE INTO session_summaries (session_id, summary, updated_at) VALUES (?, ?, ?)")
-      .run(sessionId, summary, now);
+      .prepare("INSERT OR REPLACE INTO session_summaries (session_id, summary, message_count, updated_at) VALUES (?, ?, ?, ?)")
+      .run(sessionId, summary, messageCount, now);
   }
 
   listToolRuns(limit = 40): ToolRunRecord[] {
@@ -1080,6 +1095,14 @@ export class PetStore {
       CREATE TABLE IF NOT EXISTS session_summaries (
         session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
         summary TEXT NOT NULL,
+        message_count INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS memory_embeddings (
+        memory_id TEXT PRIMARY KEY REFERENCES memories(id) ON DELETE CASCADE,
+        model TEXT NOT NULL,
+        vector_json TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
 
@@ -1237,9 +1260,11 @@ export class PetStore {
     this.addColumnIfMissing("memories", "pii_tags_json", "TEXT");
     this.addColumnIfMissing("memories", "updated_at", "TEXT");
     this.addColumnIfMissing("memories", "expires_at", "TEXT");
+    this.addColumnIfMissing("session_summaries", "message_count", "INTEGER NOT NULL DEFAULT 0");
     this.ensureMemoryFts();
     for (const memory of this.listMemories()) {
       this.indexMemory(memory);
+      this.indexMemoryEmbedding(memory);
     }
     this.db.prepare("UPDATE social_exchanges SET direction = ? WHERE direction = ?").run("local", "local-simulated");
   }
@@ -1307,7 +1332,109 @@ export class PetStore {
     } catch {
       // FTS cleanup is best-effort.
     }
+    this.db.prepare("DELETE FROM memory_embeddings WHERE memory_id NOT IN (SELECT id FROM memories)").run();
   }
+
+  private indexMemoryEmbedding(memory: Memory) {
+    const now = new Date().toISOString();
+    this.db
+      .prepare("INSERT OR REPLACE INTO memory_embeddings (memory_id, model, vector_json, updated_at) VALUES (?, ?, ?, ?)")
+      .run(memory.id, "local-hash-v1", JSON.stringify(embedMemoryText(`${memory.content}\n${memory.summary ?? ""}`)), now);
+  }
+
+  private queryMemoryEmbeddings(query: string, limit: number) {
+    const queryVector = embedMemoryText(query);
+    const rows = this.db
+      .prepare(
+        `
+          SELECT m.id, m.kind, m.scope, m.content, m.summary, m.confidence, m.source,
+                 m.source_type, m.source_id, m.visibility, m.pii_tags_json,
+                 m.created_at, m.updated_at, m.expires_at, e.vector_json
+          FROM memory_embeddings e
+          JOIN memories m ON m.id = e.memory_id
+          WHERE m.expires_at IS NULL OR m.expires_at > ?
+        `,
+      )
+      .all(new Date().toISOString()) as MemoryEmbeddingRow[];
+    return rows
+      .map((row) => ({ memory: toMemory(row), score: cosineSimilarity(queryVector, parseVector(row.vector_json)) }))
+      .filter((item) => item.score >= 0.08)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, Math.max(1, Math.min(limit, 48)))
+      .map((item) => item.memory);
+  }
+}
+
+function dedupeMemories(memories: Memory[]) {
+  const seen = new Set<string>();
+  const result: Memory[] = [];
+  for (const memory of memories) {
+    if (seen.has(memory.id)) continue;
+    seen.add(memory.id);
+    result.push(memory);
+  }
+  return result;
+}
+
+function embedMemoryText(text: string) {
+  const vector = new Array<number>(MEMORY_EMBEDDING_DIMENSIONS).fill(0);
+  for (const token of memoryTokens(text)) {
+    const index = Math.abs(hashString(token)) % MEMORY_EMBEDDING_DIMENSIONS;
+    vector[index] = (vector[index] ?? 0) + (token.length > 1 ? 1.4 : 1);
+  }
+  const magnitude = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0)) || 1;
+  return vector.map((value) => Math.round((value / magnitude) * 1_000_000) / 1_000_000);
+}
+
+function memoryTokens(text: string) {
+  const normalized = text.toLowerCase().replace(/\s+/g, " ").trim();
+  const tokens = new Set<string>();
+  for (const word of normalized.match(/[a-z0-9_'-]{2,}/g) ?? []) {
+    tokens.add(word);
+    if (word.length > 4) tokens.add(word.slice(0, 4));
+  }
+  const cjk = [...normalized.matchAll(/[\u3400-\u9fff]/g)].map((match) => match[0]);
+  for (let index = 0; index < cjk.length; index += 1) {
+    tokens.add(cjk[index]!);
+    if (cjk[index + 1]) tokens.add(`${cjk[index]}${cjk[index + 1]}`);
+    if (cjk[index + 2]) tokens.add(`${cjk[index]}${cjk[index + 1]}${cjk[index + 2]}`);
+  }
+  return [...tokens];
+}
+
+function hashString(value: string) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash;
+}
+
+function parseVector(value: string) {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed.map((item) => (typeof item === "number" ? item : 0)) : [];
+  } catch {
+    return [];
+  }
+}
+
+function cosineSimilarity(left: number[], right: number[]) {
+  const length = Math.min(left.length, right.length);
+  if (!length) return 0;
+  let dot = 0;
+  let leftMagnitude = 0;
+  let rightMagnitude = 0;
+  for (let index = 0; index < length; index += 1) {
+    const a = left[index] ?? 0;
+    const b = right[index] ?? 0;
+    dot += a * b;
+    leftMagnitude += a * a;
+    rightMagnitude += b * b;
+  }
+  if (!leftMagnitude || !rightMagnitude) return 0;
+  return dot / Math.sqrt(leftMagnitude * rightMagnitude);
 }
 
 function toSession(row: SessionRow): RuntimeSession {

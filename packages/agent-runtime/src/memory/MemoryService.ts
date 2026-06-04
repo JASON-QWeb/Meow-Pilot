@@ -66,10 +66,12 @@ export class MemoryService {
   }
 
   async ensureSessionSummary(sessionId: string, messages: ChatMessage[], abortSignal?: AbortSignal) {
-    const existing = this.store.getSessionSummary(sessionId);
-    if (existing || messages.length < 18) return existing;
+    const messageCount = messages.filter((message) => message.role !== "system").length;
+    const existing = this.store.getSessionSummaryRecord(sessionId);
+    if (messageCount < 18) return existing?.summary ?? null;
+    if (existing && messageCount < existing.messageCount + summaryRefreshInterval()) return existing.summary;
     const summary = (await generateSessionSummaryWithAiSdk(messages, abortSignal).catch(() => null)) ?? summarizeSession(messages);
-    this.store.saveSessionSummary(sessionId, summary);
+    this.store.saveSessionSummary(sessionId, summary, messageCount);
     return summary;
   }
 }
@@ -91,4 +93,9 @@ function summarizeSession(messages: ChatMessage[]) {
     .slice(-16)
     .map((message) => `${message.role === "user" ? "用户" : "宠物"}：${message.content.replace(/\s+/g, " ").slice(0, 160)}`);
   return useful.join("\n").slice(0, 1_800);
+}
+
+function summaryRefreshInterval() {
+  const configured = Number(process.env.PET_SESSION_SUMMARY_REFRESH_MESSAGES);
+  return Number.isFinite(configured) && configured > 0 ? Math.floor(configured) : 20;
 }

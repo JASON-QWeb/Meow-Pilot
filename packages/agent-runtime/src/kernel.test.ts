@@ -45,13 +45,22 @@ function createFixture() {
   return { dir, store, memory, skills, tools, contextBuilder };
 }
 
-test("ContextBuilder includes tool schemas context without requiring a model", async () => {
+test("ContextBuilder includes selected tool context without requiring a model", async () => {
   const fixture = createFixture();
   try {
     const session = fixture.store.createSession("上下文测试", new Date().toISOString());
-    const context = await fixture.contextBuilder.build({ session, userText: "读取 README", history: [] });
+    const contextBuilder = new ContextBuilder(
+      fixture.store,
+      fixture.memory,
+      fixture.skills,
+      () => fixture.tools.catalog(),
+      (userText) => fixture.tools.promptCatalog(userText),
+    );
+    const context = await contextBuilder.build({ session, userText: "读取 README", history: [] });
     assert.match(context.context, /Meow Pilot/);
     assert.match(context.context, /file_read/);
+    assert.match(context.context, /工具类别索引/);
+    assert.match(context.context, /tool_search/);
     assert.equal(context.recentHistory.length, 0);
   } finally {
     rmSync(fixture.dir, { recursive: true, force: true });
@@ -76,6 +85,10 @@ test("AgentKernel returns a clear configuration message when no model is configu
       const result = await kernel.run(session, "run_test", "你好");
       assert.match(result?.message.content ?? "", /还没有可用的模型 API 配置/);
       assert.equal(events.some((item) => item.event === "agent.lifecycle"), true);
+      assert.equal(events.some((item) => {
+        const payload = item.payload as { message?: string };
+        return payload.message?.startsWith("计划：");
+      }), false);
     } finally {
       rmSync(fixture.dir, { recursive: true, force: true });
     }

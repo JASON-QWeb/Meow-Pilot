@@ -4,7 +4,42 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import type { ChatMessage, Memory } from "@pet/protocol";
+import { MemoryService } from "./memory/MemoryService";
 import { PetStore } from "./storage";
+
+function withNoModelConfig<T>(fn: () => Promise<T>) {
+  const keys = [
+    "PET_AI_CONFIG_PATH",
+    "PET_AI_API_KEY",
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "GOOGLE_GENERATIVE_AI_API_KEY",
+    "GOOGLE_API_KEY",
+    "XAI_API_KEY",
+    "DEEPSEEK_API_KEY",
+    "OPENROUTER_API_KEY",
+    "OPENAI_COMPATIBLE_API_KEY",
+    "PET_API_MD_PATH",
+  ];
+  const previous = new Map(keys.map((key) => [key, process.env[key]]));
+  for (const key of keys) delete process.env[key];
+  process.env.PET_AI_CONFIG_PATH = join(tmpdir(), `missing-${crypto.randomUUID()}.json`);
+  return fn().finally(() => {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+}
+
+function makeMessages(count: number): ChatMessage[] {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `msg_${index}`,
+    role: index % 2 === 0 ? "user" : "assistant",
+    content: `第 ${index + 1} 条消息，用于验证摘要刷新。`,
+    createdAt: new Date(2026, 5, 1, 0, index).toISOString(),
+  }));
+}
 
 test("PetStore persists sessions, messages, and derives runtime stats from the database", () => {
   const dir = mkdtempSync(join(tmpdir(), "pet-store-"));
@@ -95,6 +130,59 @@ test("PetStore deduplicates memories and hides expired memories", () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("PetStore ranks memory vector matches before falling back to literal search", () => {
+  const dir = mkdtempSync(join(tmpdir(), "pet-store-memory-vector-"));
+  const dbPath = join(dir, "pet-agentd.sqlite");
+
+  try {
+    const store = new PetStore(dbPath);
+    const base: Memory = {
+      id: "mem_docs",
+      kind: "semantic",
+      scope: "private",
+      content: "用户希望项目文档默认使用中文。",
+      confidence: 0.9,
+      source: "chat",
+      createdAt: "2026-06-01T00:00:00.000Z",
+    };
+    store.saveMemory(base);
+    store.saveMemory({
+      ...base,
+      id: "mem_music",
+      content: "用户喜欢晚上听轻音乐。",
+    });
+
+    assert.equal(store.queryMemories("中文文档", undefined, 5)[0]?.id, "mem_docs");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("MemoryService refreshes session summaries after additional messages", async () => {
+  await withNoModelConfig(async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pet-store-summary-"));
+    const dbPath = join(dir, "pet-agentd.sqlite");
+
+    try {
+      const store = new PetStore(dbPath);
+      const memory = new MemoryService(store);
+      const session = store.createSession("摘要刷新", "2026-06-01T00:00:00.000Z");
+      const firstBatch = makeMessages(18);
+      const firstSummary = await memory.ensureSessionSummary(session.id, firstBatch);
+      const firstRecord = store.getSessionSummaryRecord(session.id);
+      assert.ok(firstSummary);
+      assert.equal(firstRecord?.messageCount, 18);
+
+      const secondSummary = await memory.ensureSessionSummary(session.id, makeMessages(38));
+      const secondRecord = store.getSessionSummaryRecord(session.id);
+      assert.ok(secondSummary);
+      assert.equal(secondRecord?.messageCount, 38);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 test("PetStore persists scheduled tasks and advances repeating tasks", () => {

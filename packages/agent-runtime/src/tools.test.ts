@@ -215,6 +215,24 @@ test("ToolRegistry exposes schemas for native AI SDK tool calling", () => {
   }
 });
 
+test("ToolRegistry selects a small prompt catalog and supports tool discovery", async () => {
+  const fixture = createRuntimeFixture();
+  try {
+    const promptCatalog = fixture.tools.promptCatalog("读取 README 并搜索代码");
+    assert.ok(promptCatalog.selected.some((tool) => tool.name === "tool_search"));
+    assert.ok(promptCatalog.selected.some((tool) => tool.name === "file_read"));
+    assert.ok(promptCatalog.selected.length < fixture.tools.catalog().length);
+    assert.ok(promptCatalog.categories.some((item) => item.category === "file" && item.total >= item.selected));
+
+    const payload = await fixture.tools.invoke({ name: "tool_search", input: { query: "browser", limit: 5 } });
+    assert.equal(payload.run.status, "success");
+    assert.ok(Array.isArray((payload.result as { tools?: unknown[] }).tools));
+    assert.ok((payload.result as { tools: Array<{ name: string }> }).tools.some((tool) => tool.name === "browser_open"));
+  } finally {
+    rmSync(fixture.dir, { recursive: true, force: true });
+  }
+});
+
 test("ToolRegistry supports dynamic tool registration", async () => {
   const fixture = createRuntimeFixture();
   try {

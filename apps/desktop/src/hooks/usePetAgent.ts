@@ -151,36 +151,56 @@ export function usePetAgent() {
 
   useEffect(() => {
     let disposed = false;
+    let connecting = false;
+    let reconnectTimer: number | undefined;
     const disposeEvent = client.onEvent((event) => handleEvent(event));
-    const disposeStatus = client.onStatus((status) => setConnection(status));
+    const disposeStatus = client.onStatus((status) => {
+      setConnection(status);
+      if (status === "offline") scheduleReconnect();
+    });
 
     setConnection("connecting");
     void initializeConnection();
 
+    function scheduleReconnect() {
+      if (disposed || connecting || reconnectTimer) return;
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = undefined;
+        void initializeConnection();
+      }, 750);
+    }
+
     async function initializeConnection() {
-      for (let attempt = 0; attempt < 30; attempt += 1) {
-        try {
-          await client.connect();
-          if (disposed) return;
-          await client.request<HelloPayload>("hello", { clientName: "pet-desktop-web", protocolVersion: "0.1" });
-          const session = await client.request<SessionResumePayload>("session.resume");
-          if (disposed) return;
-          applySessionPayload(session);
-          await refreshSessionList();
-          await refreshSideData();
-          return;
-        } catch {
-          client.close();
-          if (disposed) return;
-          setConnection(attempt > 2 ? "offline" : "connecting");
-          await sleep(Math.min(250 + attempt * 150, 1_500));
+      if (connecting) return;
+      connecting = true;
+      try {
+        for (let attempt = 0; attempt < 30; attempt += 1) {
+          try {
+            await client.connect();
+            if (disposed) return;
+            await client.request<HelloPayload>("hello", { clientName: "pet-desktop-web", protocolVersion: "0.1" });
+            const session = await client.request<SessionResumePayload>("session.resume");
+            if (disposed) return;
+            applySessionPayload(session);
+            await refreshSessionList();
+            await refreshSideData();
+            return;
+          } catch {
+            client.close();
+            if (disposed) return;
+            setConnection(attempt > 2 ? "offline" : "connecting");
+            await sleep(Math.min(250 + attempt * 150, 1_500));
+          }
         }
+        if (!disposed) setConnection("offline");
+      } finally {
+        connecting = false;
       }
-      if (!disposed) setConnection("offline");
     }
 
     return () => {
       disposed = true;
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
       disposeEvent();
       disposeStatus();
       client.close();

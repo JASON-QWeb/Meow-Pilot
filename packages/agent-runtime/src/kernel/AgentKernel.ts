@@ -37,6 +37,7 @@ export type AgentContinuation = {
   userText: string;
   instructions: string;
   messages: ModelMessage[];
+  allowedToolNames: string[];
   completedToolResults: AgentToolResult[];
   pendingTools: Array<{ permissionId: string; call: AiSdkToolCall }>;
   nextRound: number;
@@ -75,6 +76,9 @@ type RunOptions = {
 };
 
 const MAX_TOOL_ROUNDS = 5;
+const MAX_PARALLEL_TOOLS = 3;
+const MAX_TOOL_RESULT_CHARS = 12_000;
+const MAX_TOOL_RESULT_MESSAGE_CHARS = 32_000;
 
 export class AgentKernel {
   constructor(private readonly options: AgentKernelOptions) {}
@@ -94,11 +98,13 @@ export class AgentKernel {
     const history = this.options.store.listMessages(session.id).filter((message) => message.id !== runOptions.userMessageId);
     const context = await this.options.contextBuilder.build({ session, userText, history, abortSignal: runOptions.abortSignal });
     const messages = chatMessagesToModelMessages(context.recentHistory, userText, runOptions.attachments);
-    const plan = await this.createPlan(session.id, runId, userText, context.context, runOptions.abortSignal);
+    const usePlan = shouldUsePlanning(userText, Boolean(runOptions.attachments?.length));
+    const plan = usePlan ? await this.createPlan(session.id, runId, userText, context.context, runOptions.abortSignal) : null;
     const instructions = plan ? `${context.context}\n\n执行计划：\n${formatPlan(plan)}` : context.context;
     return this.runLoop(session, runId, userText, {
       instructions,
       messages,
+      allowedToolNames: this.options.tools.selectForUserText(userText).map((tool) => tool.name),
       streamedText: "",
       startRound: 0,
       completedToolResults: [],
@@ -121,6 +127,7 @@ export class AgentKernel {
     return this.runLoop(session, continuation.runId, continuation.userText, {
       instructions: continuation.instructions,
       messages: [...continuation.messages, createToolResultMessage(allResults)],
+      allowedToolNames: continuation.allowedToolNames,
       streamedText: continuation.streamedText,
       startRound: continuation.nextRound,
       completedToolResults: [],
@@ -134,6 +141,7 @@ export class AgentKernel {
     state: {
       instructions: string;
       messages: ModelMessage[];
+      allowedToolNames: string[];
       streamedText: string;
       startRound: number;
       completedToolResults: AgentToolResult[];
@@ -143,6 +151,7 @@ export class AgentKernel {
     const isActive = runOptions.isActive ?? (() => true);
     const messages = [...state.messages];
     const instructions = state.instructions;
+    const allowedToolNames = new Set(state.allowedToolNames);
     let finalText = "";
     let finalSurface: SurfaceSpec | undefined;
     let streamedText = state.streamedText;
@@ -156,7 +165,7 @@ export class AgentKernel {
         message: round === 0 ? "构建上下文" : "工具结果回填后继续推理",
       });
 
-      const step = await this.generate(instructions, messages, runOptions.abortSignal, (chunk) => {
+      const step = await this.generate(instructions, messages, allowedToolNames, runOptions.abortSignal, (chunk) => {
         streamedText += chunk;
         this.options.emit("agent.delta", { sessionId: session.id, runId, text: chunk });
       });
@@ -173,15 +182,14 @@ export class AgentKernel {
         break;
       }
 
-      const toolResults = await Promise.all(
-        step.toolCalls.map(async (call) => {
-          const payload = await this.options.tools.invoke(
-            { name: call.toolName, input: call.input, sessionId: session.id, runId, source: "agent" },
-            { sessionId: session.id, runId },
-          );
-          return { call, payload };
-        }),
-      );
+      const toolResults = await mapWithConcurrency(step.toolCalls, MAX_PARALLEL_TOOLS, async (call) => {
+        const payload = await this.options.tools.invoke(
+          { name: call.toolName, input: call.input, sessionId: session.id, runId, source: "agent" },
+          { sessionId: session.id, runId },
+        );
+        return { call, payload };
+      });
+      mergeDiscoveredToolNames(allowedToolNames, toolResults);
 
       for (const { call, payload } of toolResults) {
         this.options.emit("tool.run", { run: payload.run });
@@ -207,6 +215,7 @@ export class AgentKernel {
             stepText: step.text,
             calls: step.toolCalls,
             toolResults,
+            allowedToolNames: [...allowedToolNames],
             nextRound: round + 1,
             streamedText,
           });
@@ -220,18 +229,16 @@ export class AgentKernel {
       messages.push(createAssistantToolMessage(step.text, step.toolCalls));
       messages.push(createToolResultMessage(toolResults.map(({ call, payload }) => ({
         call,
-        value: {
-          tool: call.toolName,
-          status: payload.run.status,
-          result: payload.result,
-        },
+        value: createToolResultValue(call.toolName, payload.run.status, payload.result),
       }))));
     }
 
     if (!finalText && !finalSurface) {
       finalText = "这轮工具链没有产出最终回答，请重试或缩小任务范围。";
     }
-    finalText = await this.reflect(userText, finalText, runId, session.id, runOptions.abortSignal);
+    if (shouldUseReflection(userText, finalText)) {
+      finalText = await this.reflect(userText, finalText, runId, session.id, runOptions.abortSignal);
+    }
     return { message: this.finish(session, runId, finalText, finalSurface, streamedText) };
   }
 
@@ -279,11 +286,11 @@ export class AgentKernel {
     }
   }
 
-  private async generate(instructions: string, messages: ModelMessage[], abortSignal?: AbortSignal, onChunk?: (chunk: string) => void) {
+  private async generate(instructions: string, messages: ModelMessage[], allowedToolNames: Set<string>, abortSignal?: AbortSignal, onChunk?: (chunk: string) => void) {
     return streamAgentStepWithAiSdk({
       instructions,
       messages,
-      tools: this.options.tools.aiSdkTools(),
+      tools: this.options.tools.aiSdkTools(allowedToolNames),
       abortSignal,
       onChunk,
     });
@@ -331,16 +338,23 @@ function createAssistantToolMessage(text: string, calls: AiSdkToolCall[]): Model
 }
 
 function createToolResultMessage(results: Array<{ call: AiSdkToolCall; value: unknown }>): ModelMessage {
+  let remaining = MAX_TOOL_RESULT_MESSAGE_CHARS;
   const content = results.map(({ call, value }) => ({
     type: "tool-result" as const,
     toolCallId: call.toolCallId,
     toolName: call.toolName,
     output: {
       type: "json" as const,
-      value: toJsonValue(value),
+      value: compactToolResultValue(value, nextToolResultBudget()),
     },
   })) satisfies ToolResultPart[];
   return { role: "tool", content };
+
+  function nextToolResultBudget() {
+    const budget = Math.max(1_000, Math.min(MAX_TOOL_RESULT_CHARS, remaining));
+    remaining -= budget;
+    return budget;
+  }
 }
 
 function createContinuation(params: {
@@ -352,6 +366,7 @@ function createContinuation(params: {
   stepText: string;
   calls: AiSdkToolCall[];
   toolResults: Array<{ call: AiSdkToolCall; payload: { run: { permissionId?: string; status: string }; result?: unknown } }>;
+  allowedToolNames: string[];
   nextRound: number;
   streamedText: string;
 }): AgentContinuation {
@@ -365,11 +380,7 @@ function createContinuation(params: {
     }
     completedToolResults.push({
       call,
-      value: {
-        tool: call.toolName,
-        status: payload.run.status,
-        result: payload.result,
-      },
+      value: createToolResultValue(call.toolName, payload.run.status, payload.result),
       permissionId: payload.run.permissionId,
     });
   }
@@ -380,6 +391,7 @@ function createContinuation(params: {
     userText: params.userText,
     instructions: params.instructions,
     messages: [...params.messages, createAssistantToolMessage(params.stepText, params.calls)],
+    allowedToolNames: params.allowedToolNames,
     completedToolResults,
     pendingTools,
     nextRound: params.nextRound,
@@ -390,6 +402,96 @@ function createContinuation(params: {
 function toJsonValue(value: unknown) {
   if (value === undefined) return null;
   return JSON.parse(JSON.stringify(value));
+}
+
+function createToolResultValue(tool: string, status: string, result: unknown) {
+  return { tool, status, result };
+}
+
+function compactToolResultValue(value: unknown, budget: number) {
+  const normalized = toJsonValue(value);
+  const json = stringifyJson(normalized);
+  if (json.length <= budget) return normalized;
+  if (isRecord(normalized)) {
+    const tool = typeof normalized.tool === "string" ? normalized.tool : undefined;
+    const status = typeof normalized.status === "string" ? normalized.status : undefined;
+    const result = "result" in normalized ? normalized.result : normalized;
+    const preview = stringifyJson(toJsonValue(result));
+    return {
+      ...(tool ? { tool } : {}),
+      ...(status ? { status } : {}),
+      truncated: true,
+      originalChars: json.length,
+      preview: preview.slice(0, Math.max(200, budget - 240)),
+    };
+  }
+  return {
+    truncated: true,
+    originalChars: json.length,
+    preview: json.slice(0, Math.max(200, budget - 120)),
+  };
+}
+
+function stringifyJson(value: unknown) {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return JSON.stringify(String(value));
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+async function mapWithConcurrency<T, TResult>(items: T[], concurrency: number, mapper: (item: T, index: number) => Promise<TResult>) {
+  const results = new Array<TResult>(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.max(1, Math.min(concurrency, items.length));
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < items.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        results[index] = await mapper(items[index]!, index);
+      }
+    }),
+  );
+  return results;
+}
+
+function mergeDiscoveredToolNames(
+  allowedToolNames: Set<string>,
+  toolResults: Array<{ payload: { result?: unknown } }>,
+) {
+  for (const { payload } of toolResults) {
+    const result = payload.result;
+    if (!isRecord(result) || !Array.isArray(result.tools)) continue;
+    for (const tool of result.tools) {
+      if (isRecord(tool) && typeof tool.name === "string") allowedToolNames.add(tool.name);
+    }
+  }
+}
+
+function shouldUsePlanning(userText: string, hasAttachments: boolean) {
+  if (hasAttachments) return true;
+  if (isSimpleQuestion(userText)) return false;
+  return /写|改|修|实现|创建|生成|分析|总结|查询|搜索|调研|计划|步骤|代码|文件|工具|卡片|提醒|build|fix|create|write|implement|search|research|analyze|review|plan/i.test(userText);
+}
+
+function shouldUseReflection(userText: string, finalText: string) {
+  if (isSimpleQuestion(userText)) return false;
+  if (finalText.length < 240 && !/代码|文件|搜索|查询|分析|修复|实现|工具|build|fix|implement|research|review/i.test(userText)) return false;
+  return true;
+}
+
+function isSimpleQuestion(userText: string) {
+  const text = userText.trim();
+  if (!text || text.length > 80 || text.includes("\n")) return false;
+  if (/写|改|修|创建|生成|实现|搜索|查询|调研|打开|读取|运行|执行|删除|保存|提醒|卡片|代码|文件|build|fix|create|write|implement|search|lookup|run|execute|delete|open/i.test(text)) {
+    return false;
+  }
+  return /^(你好|嗨|hi|hello|谢谢|thanks|今天几号|现在几点|你是谁|在吗|ok|好的|嗯|是|否|为什么|是什么|怎么说|解释一下)/i.test(text) || text.length <= 32;
 }
 
 function formatPlan(plan: AgentPlan) {

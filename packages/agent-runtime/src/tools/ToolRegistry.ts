@@ -25,6 +25,19 @@ import { findWorkspaceRoot } from "../workspace";
 const exec = promisify(execCallback);
 const MAX_FILE_BYTES = 1_000_000;
 const MAX_TOOL_OUTPUT = 24_000;
+const DEFAULT_TOOL_TIMEOUT_MS = 30_000;
+const WEB_TOOL_TIMEOUT_MS = 15_000;
+const AGENT_TOOL_LIMIT = 12;
+const CORE_AGENT_TOOL_NAMES = [
+  "tool_search",
+  "system_info",
+  "memory_search",
+  "skill_search",
+  "skill_view",
+  "skill_run",
+  "surface_render",
+  "media_prepare",
+];
 const EMPTY_INPUT_SCHEMA = {
   type: "object",
   properties: {},
@@ -89,6 +102,86 @@ export class ToolRegistry {
 
   catalog() {
     return [...this.tools.values()].map((tool) => tool.summary);
+  }
+
+  promptCatalog(userText: string, limit = AGENT_TOOL_LIMIT) {
+    const selected = this.selectForUserText(userText, limit);
+    const selectedNames = new Set(selected.map((tool) => tool.name));
+    const categories = new Map<string, { total: number; selected: number }>();
+    for (const tool of this.catalog()) {
+      const current = categories.get(tool.category) ?? { total: 0, selected: 0 };
+      current.total += 1;
+      if (selectedNames.has(tool.name)) current.selected += 1;
+      categories.set(tool.category, current);
+    }
+    return {
+      selected,
+      categories: [...categories.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([category, count]) => ({ category, ...count })),
+    };
+  }
+
+  selectForUserText(userText: string, limit = AGENT_TOOL_LIMIT) {
+    const lower = userText.toLowerCase();
+    const selected = new Map<string, ToolSummary>();
+    const add = (name: string) => {
+      const tool = this.tools.get(name);
+      if (tool) selected.set(name, tool.summary);
+    };
+    for (const name of CORE_AGENT_TOOL_NAMES) add(name);
+
+    const addCategory = (category: string) => {
+      for (const tool of this.tools.values()) {
+        if (tool.summary.category === category) add(tool.summary.name);
+      }
+    };
+
+    if (/(文件|目录|代码|读取|写入|修改|删除|移动|搜索文件|readme|patch|file|code|repo|workspace)/i.test(userText)) addCategory("file");
+    if (/(命令|终端|执行|运行|安装|测试|构建|terminal|shell|command|pnpm|npm|git|test|build)/i.test(userText)) addCategory("terminal");
+    if (/(搜索|联网|网页|资料|新闻|价格|天气|查询|search|web|fetch|http|url|lookup|research)/i.test(userText)) addCategory("web");
+    if (/(日历|日程|calendar|schedule)/i.test(userText)) addCategory("calendar");
+    if (/(剪贴板|通知|截图|浏览器|clipboard|notification|screenshot|browser)/i.test(userText)) {
+      addCategory("clipboard");
+      addCategory("notification");
+      addCategory("system");
+      addCategory("browser");
+    }
+    if (/(提醒|待办|任务|todo|reminder|task)/i.test(userText)) addCategory("task");
+    if (/(好友|交换|分享|friend|social|share)/i.test(userText)) addCategory("social");
+    if (/(音乐|视频|播放|播放器|music|video|media|player)/i.test(userText)) addCategory("media");
+    if (/(卡片|界面|组件|表格|图表|surface|ui|chart|table|form)/i.test(userText)) addCategory("surface");
+    if (/(记住|记忆|偏好|remember|memory)/i.test(userText)) addCategory("memory");
+    if (/(skill|技能|工作流|workflow)/i.test(userText)) addCategory("skill");
+    if (/(子 agent|调研|风险|分析|subagent|research|review)/i.test(userText)) addCategory("agent");
+
+    for (const tool of this.searchToolSummaries(lower, Math.max(0, limit - selected.size))) {
+      add(tool.name);
+    }
+
+    return [...selected.values()].slice(0, Math.max(CORE_AGENT_TOOL_NAMES.length, limit));
+  }
+
+  searchToolSummaries(query?: string, limit = 8) {
+    const normalized = query?.trim().toLowerCase();
+    const tools = this.catalog();
+    if (!normalized) return tools.slice(0, Math.max(1, Math.min(limit, 24)));
+    const tokens = normalized.split(/\s+/).filter(Boolean);
+    return tools
+      .map((tool) => {
+        const text = `${tool.name} ${tool.category} ${tool.description}`.toLowerCase();
+        let score = 0;
+        for (const token of tokens) {
+          if (tool.name.toLowerCase().includes(token)) score += 5;
+          if (tool.category.toLowerCase().includes(token)) score += 3;
+          if (text.includes(token)) score += 1;
+        }
+        return { tool, score };
+      })
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score || a.tool.name.localeCompare(b.tool.name))
+      .slice(0, Math.max(1, Math.min(limit, 24)))
+      .map((item) => item.tool);
   }
 
   aiSdkTools(allowedNames?: Iterable<string>): ToolSet {
@@ -216,7 +309,8 @@ export class ToolRegistry {
     };
 
     try {
-      const result = await tool.run(input, context);
+      const timeoutMs = timeoutForTool(tool.summary.name, input);
+      const result = await withTimeout(Promise.resolve().then(() => tool.run(input, context)), timeoutMs, tool.summary.name);
       const completed: ToolRunRecord = {
         ...run,
         output: result.output,
@@ -242,6 +336,26 @@ export class ToolRegistry {
 
   private createTools(): ToolDefinition[] {
     return [
+      {
+        summary: {
+          name: "tool_search",
+          description: "按当前任务搜索可用工具摘要。用于发现未默认暴露的具体工具。",
+          category: "system",
+          permissionLevel: "read",
+          inputSchema: inputSchema({
+            query: stringProperty("工具搜索关键词或任务描述。"),
+            limit: numberProperty("返回工具数量上限。"),
+          }),
+        },
+        run: (input) => {
+          const query = readString(input.query) ?? "";
+          const tools = this.searchToolSummaries(query, clampNumber(input.limit, 1, 20, 8));
+          return {
+            output: { tools },
+            summary: tools.map((tool) => `${tool.name} (${tool.category})`).join("\n") || "没有匹配工具。",
+          };
+        },
+      },
       {
         summary: {
           name: "terminal_exec",
@@ -1079,7 +1193,7 @@ async function duckDuckGoSearch(query: string) {
 
 async function duckDuckGoInstantAnswer(query: string) {
   const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_redirect=1&no_html=1`;
-  const response = await fetch(url, { headers: { accept: "application/json" } });
+  const response = await fetchWithTimeout(url, { headers: { accept: "application/json" } }, WEB_TOOL_TIMEOUT_MS);
   if (!response.ok) throw new Error(`DuckDuckGo API returned HTTP ${response.status}`);
   const body = await response.json() as {
     Heading?: string;
@@ -1102,7 +1216,7 @@ async function duckDuckGoInstantAnswer(query: string) {
 
 async function duckDuckGoHtmlSearch(query: string) {
   const url = `https://duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-  const response = await fetch(url, { headers: { accept: "text/html" } });
+  const response = await fetchWithTimeout(url, { headers: { accept: "text/html" } }, WEB_TOOL_TIMEOUT_MS);
   if (!response.ok) throw new Error(`DuckDuckGo HTML returned HTTP ${response.status}`);
   const html = await response.text();
   const $ = loadHtml(html);
@@ -1121,7 +1235,7 @@ async function duckDuckGoHtmlSearch(query: string) {
 }
 
 async function fetchWebPage(url: string) {
-  const response = await fetch(url, { headers: { accept: "text/html,text/plain,application/xhtml+xml" } });
+  const response = await fetchWithTimeout(url, { headers: { accept: "text/html,text/plain,application/xhtml+xml" } }, WEB_TOOL_TIMEOUT_MS);
   const contentType = response.headers.get("content-type") ?? "";
   const body = await response.text();
   if (!contentType.includes("html")) {
@@ -1498,6 +1612,35 @@ function readString(value: unknown) {
 function clampNumber(value: unknown, min: number, max: number, fallback: number) {
   const number = typeof value === "number" ? value : Number(value);
   return Number.isFinite(number) ? Math.max(min, Math.min(max, number)) : fallback;
+}
+
+function timeoutForTool(toolName: string, input: Record<string, unknown>) {
+  if (toolName === "terminal_exec") return clampNumber(input.timeoutMs, 1_000, 120_000, 20_000) + 2_000;
+  if (toolName === "skill_run") return 35_000;
+  if (toolName === "web_search" || toolName === "web_fetch") return WEB_TOOL_TIMEOUT_MS + 2_000;
+  return DEFAULT_TOOL_TIMEOUT_MS;
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, toolName: string): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => reject(new Error(`Tool ${toolName} timed out after ${timeoutMs} ms.`)), timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function runShellCommand(

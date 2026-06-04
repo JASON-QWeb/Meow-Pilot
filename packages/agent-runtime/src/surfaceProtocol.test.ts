@@ -35,3 +35,28 @@ test("parseAgentSurfaceResponse falls back to text when no structured surface ex
   assert.equal(parsed.text, "普通回答");
   assert.equal(parsed.surface, undefined);
 });
+
+test("parseAgentSurfaceResponse extracts balanced JSON from prose", () => {
+  const parsed = parseAgentSurfaceResponse(
+    [
+      "已整理：",
+      JSON.stringify({
+        text: "已生成查询卡片。",
+        surface: {
+          title: "查询",
+          type: "panel",
+          intent: "search",
+          layout: {
+            kind: "text",
+            variant: "body",
+            text: "结果摘要",
+          },
+        },
+      }),
+    ].join("\n"),
+    { now: "2026-06-03T00:00:00.000Z", userText: "生成查询卡" },
+  );
+
+  assert.equal(parsed.text, "已生成查询卡片。");
+  assert.equal(parsed.surface?.intent, "search");
+});
