@@ -42,10 +42,12 @@ export class MemoryService {
       visibility: memory.visibility ?? "local_only",
       updatedAt: new Date().toISOString(),
     };
-    this.store.saveMemory(normalized);
-    if (sourceType && sourceId) {
-      this.store.linkMemory(normalized.id, sourceType, sourceId);
-    }
+    this.store.withTransaction(() => {
+      this.store.saveMemory(normalized);
+      if (sourceType && sourceId) {
+        this.store.linkMemory(normalized.id, sourceType, sourceId);
+      }
+    });
     return normalized;
   }
 

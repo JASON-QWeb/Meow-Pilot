@@ -20,6 +20,9 @@
 - Hermes/OpenClaw 迁移扫描器和本地记忆/人格文本导入路径；secret 不会自动导入。
 - 本地账号、添加好友和隐私保护的宠物交换记录流程。
 - Tauri 原生壳，可打包为 macOS `.app`，并随包携带 agent runtime 单文件 bundle。
+- Tauri release 包随包携带固定 Node runtime，优先使用安装包内的 `node` 启动 agent runtime，避免依赖用户机器已有 Node。
+- `calendar_read` 接入随包 EventKit helper，不再依赖外部 `icalBuddy`。
+- macOS 不上架直分发配置已加入：hardened runtime、entitlements、Developer ID/notarization workflow 和 DMG artifact 上传。
 - 原生 bundle 图标集已生成。
 
 ## 已验证
@@ -29,6 +32,11 @@
 - `pnpm migrate:scan`
 - `pnpm migrate:import`，使用隔离临时 fixture
 - `pnpm --filter @pet/desktop tauri:build`
+- `CI=true APPLE_SIGNING_IDENTITY=- pnpm --filter @pet/desktop tauri:build:dmg`
+- 随包 Node runtime 可加载 `node:sqlite` 并启动 agent runtime 到本地端口。
+- 随包 EventKit helper `--probe` 正常返回。
+- `codesign --verify --deep --strict --verbose=2` 可验证 ad-hoc `.app`。
+- `hdiutil verify` 可验证生成的 ad-hoc DMG。
 - 桌面 UI 运行时：
   - Tauri `.app` 可完成 app bundle 构建；
   - 宠物自定义会更新可见产品状态；
@@ -40,9 +48,9 @@
 
 ## Beta 前缺口
 
-- 当前 Node runtime 中 `node:sqlite` 仍是实验能力；Beta 前需选择接受风险的 Node 版本，或切换为随包 SQLite 库。
-- 打包应用已由 Tauri 拉起本地 runtime bundle；公开分发前仍需把 Node runtime 一起内嵌，避免依赖用户机器已有 `node`。
+- `node:sqlite` 仍是 Node runtime 的实验能力；当前选择是固定并随包携带 Node runtime，后续如需继续降低风险，可再切换到随包 SQLite native/wasm 库。
 - 语音回合目前等待录音完成和 TTS 合成；唤醒词、打断和低延迟流式语音尚未包含。
 - 技能当前通过运行时 planner 运行；三方技能市场化前仍需补沙箱执行、签名和权限审计。
 - 账号/好友交换仍是 local-first 脚手架；公开 Beta 前需要生产云端 auth、好友中继、端到端策略和风控。
-- App Store 分发仍需要 Apple Developer 签名、sandbox entitlements、hardened runtime、privacy manifest、公证和 App Store Review 打包。
+- 不上架正式分发仍需要在 GitHub secrets 或本机环境中提供 Apple Developer ID 证书和 App Store Connect API Key；项目侧 workflow 已就绪，但证书和私钥不会提交进仓库。
+- App Store 上架仍需要额外的 sandbox 策略、privacy manifest 和 App Store Review 打包。

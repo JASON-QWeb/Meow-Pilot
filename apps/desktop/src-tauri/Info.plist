@@ -4,5 +4,9 @@
 <dict>
   <key>NSMicrophoneUsageDescription</key>
   <string>Pet Agent uses the microphone when you start a voice conversation.</string>
+  <key>NSCalendarsUsageDescription</key>
+  <string>Pet Agent reads calendar events only when you ask for schedule-aware assistant features.</string>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>Pet Agent may use Apple Events as a fallback for local calendar integration.</string>
 </dict>
 </plist>

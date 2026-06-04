@@ -96,3 +96,37 @@ test("PetStore deduplicates memories and hides expired memories", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("PetStore persists scheduled tasks and advances repeating tasks", () => {
+  const dir = mkdtempSync(join(tmpdir(), "pet-store-tasks-"));
+  const dbPath = join(dir, "pet-agentd.sqlite");
+
+  try {
+    const store = new PetStore(dbPath);
+    const task = store.createTask({
+      title: "整理今日待办",
+      dueAt: "2026-06-01T09:00:00.000Z",
+      repeat: "daily",
+      channel: "chat",
+      note: "只提醒一次",
+      now: "2026-06-01T08:00:00.000Z",
+    });
+
+    assert.equal(store.listTasks().length, 1);
+    assert.equal(store.listDueTasks(new Date("2026-06-01T09:01:00.000Z"))[0]?.id, task.id);
+
+    const trigger = store.recordTaskTrigger(task.id, task.channel, "sent", "提醒已发送", "2026-06-01T09:01:00.000Z");
+    const next = store.completeTask(task.id, "2026-06-01T09:01:00.000Z");
+
+    assert.equal(trigger.taskId, task.id);
+    assert.equal(next?.enabled, true);
+    assert.equal(next?.dueAt, "2026-06-02T09:00:00.000Z");
+    assert.equal(store.listTaskTriggers(task.id).length, 1);
+
+    const updated = store.updateTask(task.id, { completedAt: "2026-06-01T10:00:00.000Z" });
+    assert.equal(updated?.repeat, "daily");
+    assert.equal(updated?.channel, "chat");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

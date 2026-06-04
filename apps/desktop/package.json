@@ -8,9 +8,12 @@
     "build": "tsc -p tsconfig.json && vite build",
     "preview": "vite preview --host 127.0.0.1 --port 4173",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsx --test \"src/**/*.test.ts\" \"src/**/*.test.tsx\"",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build --bundles app",
-    "tauri:build:dmg": "tauri build --bundles app,dmg"
+    "tauri:build:dmg": "CI=true tauri build --bundles app,dmg",
+    "tauri:build:adhoc": "CI=true APPLE_SIGNING_IDENTITY=- tauri build --bundles app,dmg",
+    "tauri:build:direct": "CI=true tauri build --bundles app,dmg"
   },
   "dependencies": {
     "@pet/protocol": "workspace:*",

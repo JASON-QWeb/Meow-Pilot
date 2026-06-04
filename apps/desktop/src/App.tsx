@@ -19,15 +19,17 @@ import {
 import { Window as TauriWindow, getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { ChatPanel } from "./features/chat/ChatPanel";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { DraggablePetOverlay } from "./features/pet/DraggablePetOverlay";
 import { deletePetRigAsset, loadPetRigAsset, savePetRigAsset } from "./features/pet/petAssetStore";
 import { PetCustomizer } from "./features/pet/PetCustomizer";
 import { defaultPetPosition, defaultPetProfile, speciesOptions, type PetPosition, type PetProfile, type PetRigAsset } from "./features/pet/petProfile";
 import { HomeDashboard } from "./features/runtime/HomeDashboard";
 import { RuntimeSidePanel } from "./features/runtime/RuntimeSidePanel";
-import { createDefaultTasks, ScheduledTasksPanel, type ScheduledTask } from "./features/runtime/ScheduledTasksPanel";
+import { ScheduledTasksPanel } from "./features/runtime/ScheduledTasksPanel";
 import { TokenUsagePanel } from "./features/runtime/TokenUsagePanel";
 import { usePetAgent, type ConnectionStatus } from "./hooks/usePetAgent";
+import { t } from "./i18n";
 import { usePersistentState } from "./lib/usePersistentState";
 
 type AppWindow = "pet" | "work";
@@ -43,7 +45,6 @@ type NavIndicator = {
 
 const initialAppWindow = currentAppWindow();
 document.documentElement.dataset.window = initialAppWindow;
-const defaultScheduledTasks = createDefaultTasks();
 const supportedPetSpecies = new Set<string>(speciesOptions.map((option) => option.value));
 
 export function App() {
@@ -53,7 +54,6 @@ export function App() {
   const [storedWorkView, setStoredWorkView] = usePersistentState<StoredWorkView>("pet.work.view", "home");
   const [petProfile, setPetProfile] = usePersistentState<PetProfile>("pet.profile", defaultPetProfile);
   const [petPosition, setPetPosition] = usePersistentState<PetPosition>("pet.position", defaultPetPosition);
-  const [scheduledTasks, setScheduledTasks] = usePersistentState<ScheduledTask[]>("pet.scheduled.tasks", defaultScheduledTasks);
   const [petAsset, setPetAsset] = useState<PetRigAsset | null>(null);
   const [navIndicator, setNavIndicator] = useState<NavIndicator>({ height: 48, width: 48, x: 0, y: 0, visible: false });
 
@@ -191,22 +191,22 @@ export function App() {
           <span>Q</span>
         </div>
         <div className="workNavItems">
-          <NavButton active={workView === "custom"} icon={<FolderPlus size={24} />} label="形象" onClick={() => changeWorkView("custom")} />
-          <NavButton active={workView === "home"} icon={<Home size={24} />} label="主页" onClick={() => changeWorkView("home")} />
-          <NavButton active={workView === "tasks"} icon={<CalendarDays size={24} />} label="任务" onClick={() => changeWorkView("tasks")} />
-          <NavButton active={workView === "usage"} icon={<Gauge size={24} />} label="用量" onClick={() => changeWorkView("usage")} />
-          <NavButton active={workView === "friends"} icon={<Users size={24} />} label="好友" onClick={() => changeWorkView("friends")} />
-          <NavButton active={workView === "chat"} icon={<MessageCircle size={24} />} label="会话" onClick={() => changeWorkView("chat")} />
-          <NavButton active={workView === "memory"} icon={<Brain size={24} />} label="记忆" onClick={() => changeWorkView("memory")} />
-          <NavButton active={workView === "skills"} icon={<Puzzle size={24} />} label="Skill" onClick={() => changeWorkView("skills")} />
-          <NavButton active={workView === "tools"} icon={<SquareTerminal size={24} />} label="工具" onClick={() => changeWorkView("tools")} />
+          <NavButton active={workView === "custom"} icon={<FolderPlus size={24} />} label={t("app.nav.avatar")} onClick={() => changeWorkView("custom")} />
+          <NavButton active={workView === "home"} icon={<Home size={24} />} label={t("app.nav.home")} onClick={() => changeWorkView("home")} />
+          <NavButton active={workView === "tasks"} icon={<CalendarDays size={24} />} label={t("app.nav.tasks")} onClick={() => changeWorkView("tasks")} />
+          <NavButton active={workView === "usage"} icon={<Gauge size={24} />} label={t("app.nav.usage")} onClick={() => changeWorkView("usage")} />
+          <NavButton active={workView === "friends"} icon={<Users size={24} />} label={t("app.nav.friends")} onClick={() => changeWorkView("friends")} />
+          <NavButton active={workView === "chat"} icon={<MessageCircle size={24} />} label={t("app.nav.chat")} onClick={() => changeWorkView("chat")} />
+          <NavButton active={workView === "memory"} icon={<Brain size={24} />} label={t("app.nav.memory")} onClick={() => changeWorkView("memory")} />
+          <NavButton active={workView === "skills"} icon={<Puzzle size={24} />} label={t("app.nav.skills")} onClick={() => changeWorkView("skills")} />
+          <NavButton active={workView === "tools"} icon={<SquareTerminal size={24} />} label={t("app.nav.tools")} onClick={() => changeWorkView("tools")} />
         </div>
         <div className="workNavBottom">
-          <NavButton active={workView === "config"} icon={<Settings size={24} />} label="配置" onClick={() => changeWorkView("config")} />
-          <button className="workNavUtility profile" type="button" aria-label="账户" title="账户">
+          <NavButton active={workView === "config"} icon={<Settings size={24} />} label={t("app.nav.config")} onClick={() => changeWorkView("config")} />
+          <button className="workNavUtility profile" type="button" aria-label={t("app.nav.account")} title={t("app.nav.account")}>
             <CircleUserRound size={24} />
           </button>
-          <button className="workNavUtility" type="button" aria-label="退出" title="退出">
+          <button className="workNavUtility" type="button" aria-label={t("app.nav.exit")} title={t("app.nav.exit")}>
             <LogOut size={24} />
           </button>
         </div>
@@ -220,17 +220,17 @@ export function App() {
           <div className="workHeaderActions" aria-label="快捷操作">
             <button className={`headerChip ${workView === "home" ? "active" : ""}`} type="button" onClick={() => changeWorkView("home")}>
               <Home size={16} />
-              总览
+              {t("app.header.overview")}
             </button>
             <button className="headerChip" type="button" onClick={() => changeWorkView("tasks")}>
               <Plus size={16} />
-              新任务
+              {t("app.header.newTask")}
             </button>
             <label className="headerSearch">
               <Search size={17} />
-              <input aria-label="搜索" placeholder="Search" readOnly />
+              <input aria-label={t("app.header.search")} placeholder={t("app.header.searchPlaceholder")} readOnly />
             </label>
-            <button className="headerIcon" type="button" aria-label="通知">
+            <button className="headerIcon" type="button" aria-label={t("app.header.notifications")}>
               <Bell size={18} />
               <span />
             </button>
@@ -241,7 +241,9 @@ export function App() {
             <StatusPill status={agent.connection} />
           </div>
         </header>
-        <section className="workContent">{renderWorkView()}</section>
+        <section className="workContent">
+          <ErrorBoundary resetKey={workView}>{renderWorkView()}</ErrorBoundary>
+        </section>
       </section>
     </main>
   );
@@ -258,7 +260,7 @@ export function App() {
           providers={agent.providers}
           tokenUsage={agent.tokenUsage}
           runtimeStats={agent.runtimeStats}
-          tasks={scheduledTasks}
+          tasks={agent.scheduledTasks}
           onSendPrompt={agent.sendText}
           onNavigate={changeWorkView}
         />
@@ -308,7 +310,7 @@ export function App() {
     }
 
     if (workView === "tasks") {
-      return <ScheduledTasksPanel tasks={scheduledTasks} onChange={setScheduledTasks} />;
+      return <ScheduledTasksPanel tasks={agent.scheduledTasks} onCreateTask={agent.createTask} onUpdateTask={agent.updateTask} onDeleteTask={agent.deleteTask} />;
     }
 
     if (workView === "memory") {
@@ -439,25 +441,25 @@ export function App() {
 
 function viewTitle(view: WorkView) {
   const titles: Record<WorkView, string> = {
-    home: "Q Console",
-    chat: "会话",
-    friends: "好友宠物",
-    custom: "形象工作室",
-    usage: "用量看板",
-    tasks: "定时任务",
-    memory: "记忆",
-    skills: "Skill",
-    tools: "工具与权限",
-    config: "配置",
+    home: t("app.view.home"),
+    chat: t("app.view.chat"),
+    friends: t("app.view.friends"),
+    custom: t("app.view.custom"),
+    usage: t("app.view.usage"),
+    tasks: t("app.view.tasks"),
+    memory: t("app.view.memory"),
+    skills: t("app.view.skills"),
+    tools: t("app.view.tools"),
+    config: t("app.view.config"),
   };
   return titles[view];
 }
 
 function StatusPill({ status }: { status: ConnectionStatus }) {
   const label: Record<ConnectionStatus, string> = {
-    connecting: "连接中",
-    ready: "已连接",
-    offline: "离线",
+    connecting: t("app.status.connecting"),
+    ready: t("app.status.ready"),
+    offline: t("app.status.offline"),
   };
   return (
     <span className={`statusPill ${status}`}>

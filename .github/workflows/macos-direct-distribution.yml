@@ -1,0 +1,86 @@
+name: macOS Direct Distribution
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-notarized-dmg:
+    name: Build notarized DMG
+    runs-on: macos-14
+    env:
+      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.5.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate Apple secrets
+        run: |
+          test -n "${{ secrets.APPLE_CERTIFICATE }}" || (echo "Missing APPLE_CERTIFICATE secret" && exit 1)
+          test -n "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" || (echo "Missing APPLE_CERTIFICATE_PASSWORD secret" && exit 1)
+          test -n "${{ secrets.KEYCHAIN_PASSWORD }}" || (echo "Missing KEYCHAIN_PASSWORD secret" && exit 1)
+          test -n "${{ secrets.APPLE_API_KEY }}" || (echo "Missing APPLE_API_KEY secret" && exit 1)
+          test -n "${{ secrets.APPLE_API_ISSUER }}" || (echo "Missing APPLE_API_ISSUER secret" && exit 1)
+          test -n "${{ secrets.APPLE_API_KEY_P8_BASE64 }}" || (echo "Missing APPLE_API_KEY_P8_BASE64 secret" && exit 1)
+
+      - name: Import Developer ID certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          CERT_INFO=$(security find-identity -v -p codesigning build.keychain | grep "Developer ID Application" | head -n 1)
+          test -n "$CERT_INFO" || (echo "No Developer ID Application identity found" && exit 1)
+          CERT_ID=$(echo "$CERT_INFO" | awk -F'"' '{print $2}')
+          echo "APPLE_SIGNING_IDENTITY=$CERT_ID" >> "$GITHUB_ENV"
+
+      - name: Write App Store Connect API key
+        env:
+          APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+        run: |
+          mkdir -p private_keys
+          echo "$APPLE_API_KEY_P8_BASE64" | base64 --decode > "private_keys/AuthKey_${APPLE_API_KEY}.p8"
+          echo "APPLE_API_KEY_PATH=$PWD/private_keys/AuthKey_${APPLE_API_KEY}.p8" >> "$GITHUB_ENV"
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Build signed and notarized DMG
+        run: pnpm --filter @pet/desktop tauri:build:dmg
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: pet-agent-macos-dmg
+          path: apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+          if-no-files-found: error

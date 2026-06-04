@@ -37,3 +37,8 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+      - name: Tauri build
+        env:
+          APPLE_SIGNING_IDENTITY: "-"
+        run: pnpm --filter @pet/desktop tauri:build

@@ -3,6 +3,7 @@ import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import type { ChatMessage, ChatSendPayload, MediaPlayerNode, SessionSummary, SurfaceSpec, UIAction, VoiceSpeakPayload, VoiceTranscribePayload } from "@pet/protocol";
 import { SurfaceRenderer } from "../surfaces/SurfaceRenderer";
+import { useVirtualWindow } from "../../hooks/useVirtualWindow";
 
 type ChatPanelProps = {
   sessions: SessionSummary[];
@@ -51,6 +52,7 @@ export function ChatPanel({
   const discardRecordingRef = useRef(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
+  const messageWindow = useVirtualWindow(messages, { estimateItemHeight: 132, overscan: 8, enabled: messages.length > 120 });
 
   useEffect(() => {
     if (!pendingVoiceRunId) return;
@@ -118,14 +120,16 @@ export function ChatPanel({
           <strong>{activeSession?.title ?? "当前会话"}</strong>
           <span>{activeSession ? `${activeSession.messageCount} 条消息` : "准备中"}</span>
         </div>
-      <div className="messageList">
-        {messages.map((message) => (
-          <article className={`message ${message.role} ${message.surface ? "hasSurface" : ""}`} key={message.id}>
-            <span>{message.role === "user" ? "你" : petName}</span>
-            {message.content ? <MarkdownText text={message.content} /> : null}
-            {message.surface ? <InlineSurface surface={message.surface} onAction={onSurfaceAction} /> : null}
-          </article>
-        ))}
+      <div className={`messageList ${messageWindow.enabled ? "virtualized" : ""}`} ref={messageWindow.containerRef} onScroll={messageWindow.onScroll}>
+        {messageWindow.enabled ? (
+          <div className="virtualListSpacer" style={{ height: messageWindow.totalHeight }}>
+            <div className="messageVirtualWindow" style={{ transform: `translateY(${messageWindow.offsetY}px)` }}>
+              {messageWindow.items.map(({ item: message }) => renderMessage(message))}
+            </div>
+          </div>
+        ) : (
+          messageWindow.items.map(({ item: message }) => renderMessage(message))
+        )}
         {draft || draftSurface ? (
           <article className={`message assistant streaming ${draftSurface ? "hasSurface" : ""}`}>
             <span>{petName}</span>
@@ -176,6 +180,16 @@ export function ChatPanel({
       </div>
     </section>
   );
+
+  function renderMessage(message: ChatMessage) {
+    return (
+      <article className={`message ${message.role} ${message.surface ? "hasSurface" : ""}`} key={message.id}>
+        <span>{message.role === "user" ? "你" : petName}</span>
+        {message.content ? <MarkdownText text={message.content} /> : null}
+        {message.surface ? <InlineSurface surface={message.surface} onAction={onSurfaceAction} /> : null}
+      </article>
+    );
+  }
 
   async function captureVoice() {
     if (phase === "recording") {

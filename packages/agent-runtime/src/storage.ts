@@ -8,13 +8,16 @@ import type {
   Memory,
   PermissionRequest,
   RuntimeStatsPayload,
+  ScheduledTask,
   SessionSummary,
   SkillSummary,
   SocialExchangeRecord,
   SurfaceSpec,
+  TaskTriggerRecord,
   ToolRunRecord,
 } from "@pet/protocol";
 import { findWorkspaceRoot } from "./workspace";
+import { estimateTokens } from "./tokens";
 
 export type RuntimeSession = {
   id: string;
@@ -59,6 +62,29 @@ type MemoryRow = {
 
 type SurfaceRow = {
   spec_json: string;
+};
+
+type TaskRow = {
+  id: string;
+  title: string;
+  due_at: string;
+  repeat: ScheduledTask["repeat"];
+  channel: ScheduledTask["channel"];
+  enabled: number;
+  note: string | null;
+  created_at: string;
+  updated_at: string | null;
+  completed_at: string | null;
+  last_triggered_at: string | null;
+};
+
+type TaskTriggerRow = {
+  id: string;
+  task_id: string;
+  triggered_at: string;
+  channel: ScheduledTask["channel"];
+  status: TaskTriggerRecord["status"];
+  summary: string | null;
 };
 
 type SessionSummaryRow = SessionRow & {
@@ -182,6 +208,7 @@ const legacyTemplateAssistantMessages = [
 
 export class PetStore {
   private readonly db: DatabaseSync;
+  private transactionDepth = 0;
 
   constructor(dbPath = process.env.PET_AGENTD_DB ?? defaultDbPath) {
     mkdirSync(dirname(dbPath), { recursive: true });
@@ -195,6 +222,30 @@ export class PetStore {
   getLatestSession() {
     const row = this.db.prepare("SELECT id, title, created_at, updated_at FROM sessions ORDER BY updated_at DESC LIMIT 1").get() as SessionRow | undefined;
     return row ? toSession(row) : null;
+  }
+
+  withTransaction<T>(fn: () => T): T {
+    if (this.transactionDepth > 0) {
+      this.transactionDepth += 1;
+      try {
+        return fn();
+      } finally {
+        this.transactionDepth -= 1;
+      }
+    }
+
+    this.db.exec("BEGIN IMMEDIATE");
+    this.transactionDepth = 1;
+    try {
+      const result = fn();
+      this.db.exec("COMMIT");
+      return result;
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    } finally {
+      this.transactionDepth = 0;
+    }
   }
 
   getSession(id: string) {
@@ -714,6 +765,180 @@ export class PetStore {
     this.touchSession(sessionId);
   }
 
+  updateSurface(sessionId: string, surface: SurfaceSpec) {
+    const existing = this.getSurface(sessionId, surface.id);
+    if (!existing) return null;
+    this.saveSurface(sessionId, surface);
+    return surface;
+  }
+
+  listTasks(): ScheduledTask[] {
+    const rows = this.db
+      .prepare(
+        `
+          SELECT id, title, due_at, repeat, channel, enabled, note, created_at,
+                 updated_at, completed_at, last_triggered_at
+          FROM tasks
+          ORDER BY enabled DESC, due_at ASC, created_at DESC
+        `,
+      )
+      .all() as TaskRow[];
+    return rows.map(toTask);
+  }
+
+  getTask(taskId: string): ScheduledTask | null {
+    const row = this.db
+      .prepare(
+        `
+          SELECT id, title, due_at, repeat, channel, enabled, note, created_at,
+                 updated_at, completed_at, last_triggered_at
+          FROM tasks
+          WHERE id = ?
+        `,
+      )
+      .get(taskId) as TaskRow | undefined;
+    return row ? toTask(row) : null;
+  }
+
+  createTask(params: {
+    title: string;
+    dueAt?: string;
+    repeat?: ScheduledTask["repeat"];
+    channel?: ScheduledTask["channel"];
+    note?: string;
+    enabled?: boolean;
+    now?: string;
+  }): ScheduledTask {
+    const now = params.now ?? new Date().toISOString();
+    const task: ScheduledTask = {
+      id: `task_${crypto.randomUUID()}`,
+      title: params.title.trim(),
+      dueAt: normalizeDueAt(params.dueAt, now),
+      repeat: normalizeRepeat(params.repeat),
+      channel: normalizeChannel(params.channel),
+      enabled: params.enabled ?? true,
+      note: params.note?.trim() || undefined,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.saveTask(task);
+    return task;
+  }
+
+  updateTask(taskId: string, updates: Partial<Pick<ScheduledTask, "title" | "dueAt" | "repeat" | "channel" | "enabled" | "note" | "completedAt">>, now = new Date().toISOString()) {
+    const current = this.getTask(taskId);
+    if (!current) return null;
+    const next: ScheduledTask = {
+      ...current,
+      ...("title" in updates ? { title: (updates.title ?? current.title).trim() || current.title } : {}),
+      ...("dueAt" in updates ? { dueAt: normalizeDueAt(updates.dueAt, current.dueAt) } : {}),
+      ...("repeat" in updates ? { repeat: normalizeRepeat(updates.repeat) } : {}),
+      ...("channel" in updates ? { channel: normalizeChannel(updates.channel) } : {}),
+      ...("enabled" in updates ? { enabled: Boolean(updates.enabled) } : {}),
+      ...("note" in updates ? { note: updates.note?.trim() || undefined } : {}),
+      ...("completedAt" in updates ? { completedAt: updates.completedAt ?? undefined } : {}),
+      updatedAt: now,
+    };
+    this.saveTask(next);
+    return next;
+  }
+
+  completeTask(taskId: string, now = new Date().toISOString()) {
+    const task = this.getTask(taskId);
+    if (!task) return null;
+    const next = advanceTaskAfterTrigger(task, now);
+    this.saveTask(next);
+    return next;
+  }
+
+  deleteTask(taskId: string) {
+    const result = this.db.prepare("DELETE FROM tasks WHERE id = ?").run(taskId);
+    return result.changes > 0;
+  }
+
+  listDueTasks(now = new Date()): ScheduledTask[] {
+    const rows = this.db
+      .prepare(
+        `
+          SELECT id, title, due_at, repeat, channel, enabled, note, created_at,
+                 updated_at, completed_at, last_triggered_at
+          FROM tasks
+          WHERE enabled = 1
+            AND due_at <= ?
+            AND (last_triggered_at IS NULL OR last_triggered_at < due_at)
+          ORDER BY due_at ASC, created_at ASC
+          LIMIT 20
+        `,
+      )
+      .all(now.toISOString()) as TaskRow[];
+    return rows.map(toTask);
+  }
+
+  recordTaskTrigger(taskId: string, channel: ScheduledTask["channel"], status: TaskTriggerRecord["status"], summary?: string, now = new Date().toISOString()) {
+    const record: TaskTriggerRecord = {
+      id: `tasktr_${crypto.randomUUID()}`,
+      taskId,
+      channel,
+      status,
+      summary,
+      triggeredAt: now,
+    };
+    this.db
+      .prepare("INSERT INTO task_triggers (id, task_id, triggered_at, channel, status, summary) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(record.id, record.taskId, record.triggeredAt, record.channel, record.status, record.summary ?? null);
+    return record;
+  }
+
+  listTaskTriggers(taskId?: string, limit = 80): TaskTriggerRecord[] {
+    const boundedLimit = Math.max(1, Math.min(limit, 200));
+    const rows = (
+      taskId
+        ? this.db
+            .prepare("SELECT id, task_id, triggered_at, channel, status, summary FROM task_triggers WHERE task_id = ? ORDER BY triggered_at DESC LIMIT ?")
+            .all(taskId, boundedLimit)
+        : this.db
+            .prepare("SELECT id, task_id, triggered_at, channel, status, summary FROM task_triggers ORDER BY triggered_at DESC LIMIT ?")
+            .all(boundedLimit)
+    ) as TaskTriggerRow[];
+    return rows.map(toTaskTrigger);
+  }
+
+  saveTask(task: ScheduledTask) {
+    this.db
+      .prepare(
+        `
+          INSERT INTO tasks (
+            id, title, due_at, repeat, channel, enabled, note,
+            created_at, updated_at, completed_at, last_triggered_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            title = excluded.title,
+            due_at = excluded.due_at,
+            repeat = excluded.repeat,
+            channel = excluded.channel,
+            enabled = excluded.enabled,
+            note = excluded.note,
+            updated_at = excluded.updated_at,
+            completed_at = excluded.completed_at,
+            last_triggered_at = excluded.last_triggered_at
+        `,
+      )
+      .run(
+        task.id,
+        task.title,
+        task.dueAt,
+        task.repeat,
+        task.channel,
+        task.enabled ? 1 : 0,
+        task.note ?? null,
+        task.createdAt,
+        task.updatedAt ?? null,
+        task.completedAt ?? null,
+        task.lastTriggeredAt ?? null,
+      );
+  }
+
   getCurrentAccount(): AccountProfile | null {
     const row = this.db.prepare("SELECT id, handle, display_name, avatar_seed, created_at FROM accounts ORDER BY created_at ASC LIMIT 1").get() as AccountRow | undefined;
     return row ? toAccount(row) : null;
@@ -775,20 +1000,22 @@ export class PetStore {
   }
 
   recordSocialExchange(friendId: string, summary: string, sharedSkills: string[], sharedMemoryCount: number, now = new Date().toISOString()): SocialExchangeRecord {
-    const exchange: SocialExchangeRecord = {
-      id: `sx_${crypto.randomUUID()}`,
-      friendId,
-      direction: "local",
-      summary,
-      sharedSkills,
-      sharedMemoryCount,
-      createdAt: now,
-    };
-    this.db
-      .prepare("INSERT INTO social_exchanges (id, friend_id, direction, summary, shared_skills_json, shared_memory_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-      .run(exchange.id, exchange.friendId, exchange.direction, exchange.summary, JSON.stringify(exchange.sharedSkills), exchange.sharedMemoryCount, exchange.createdAt);
-    this.db.prepare("UPDATE friends SET last_exchange_at = ? WHERE id = ?").run(now, friendId);
-    return exchange;
+    return this.withTransaction(() => {
+      const exchange: SocialExchangeRecord = {
+        id: `sx_${crypto.randomUUID()}`,
+        friendId,
+        direction: "local",
+        summary,
+        sharedSkills,
+        sharedMemoryCount,
+        createdAt: now,
+      };
+      this.db
+        .prepare("INSERT INTO social_exchanges (id, friend_id, direction, summary, shared_skills_json, shared_memory_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+        .run(exchange.id, exchange.friendId, exchange.direction, exchange.summary, JSON.stringify(exchange.sharedSkills), exchange.sharedMemoryCount, exchange.createdAt);
+      this.db.prepare("UPDATE friends SET last_exchange_at = ? WHERE id = ?").run(now, friendId);
+      return exchange;
+    });
   }
 
   listSocialExchanges(friendId?: string): SocialExchangeRecord[] {
@@ -868,6 +1095,33 @@ export class PetStore {
       );
 
       CREATE INDEX IF NOT EXISTS idx_surfaces_session_created ON surfaces(session_id, created_at);
+
+      CREATE TABLE IF NOT EXISTS tasks (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        due_at TEXT NOT NULL,
+        repeat TEXT NOT NULL,
+        channel TEXT NOT NULL,
+        enabled INTEGER NOT NULL,
+        note TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT,
+        completed_at TEXT,
+        last_triggered_at TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_tasks_enabled_due ON tasks(enabled, due_at);
+
+      CREATE TABLE IF NOT EXISTS task_triggers (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        triggered_at TEXT NOT NULL,
+        channel TEXT NOT NULL,
+        status TEXT NOT NULL,
+        summary TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_task_triggers_task_created ON task_triggers(task_id, triggered_at);
 
       CREATE TABLE IF NOT EXISTS accounts (
         id TEXT PRIMARY KEY,
@@ -1098,6 +1352,84 @@ function toSocialExchange(row: SocialExchangeRow): SocialExchangeRecord {
   };
 }
 
+function toTask(row: TaskRow): ScheduledTask {
+  return {
+    id: row.id,
+    title: row.title,
+    dueAt: row.due_at,
+    repeat: normalizeRepeat(row.repeat),
+    channel: normalizeChannel(row.channel),
+    enabled: Boolean(row.enabled),
+    note: row.note ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at ?? undefined,
+    completedAt: row.completed_at ?? undefined,
+    lastTriggeredAt: row.last_triggered_at ?? undefined,
+  };
+}
+
+function toTaskTrigger(row: TaskTriggerRow): TaskTriggerRecord {
+  return {
+    id: row.id,
+    taskId: row.task_id,
+    triggeredAt: row.triggered_at,
+    channel: normalizeChannel(row.channel),
+    status: row.status,
+    summary: row.summary ?? undefined,
+  };
+}
+
+function advanceTaskAfterTrigger(task: ScheduledTask, now: string): ScheduledTask {
+  if (task.repeat === "daily") {
+    return {
+      ...task,
+      dueAt: addDaysPast(task.dueAt, 1, now),
+      completedAt: now,
+      lastTriggeredAt: now,
+      updatedAt: now,
+    };
+  }
+  if (task.repeat === "weekly") {
+    return {
+      ...task,
+      dueAt: addDaysPast(task.dueAt, 7, now),
+      completedAt: now,
+      lastTriggeredAt: now,
+      updatedAt: now,
+    };
+  }
+  return {
+    ...task,
+    enabled: false,
+    completedAt: now,
+    lastTriggeredAt: now,
+    updatedAt: now,
+  };
+}
+
+function addDaysPast(value: string, days: number, now: string) {
+  const due = new Date(value);
+  const current = new Date(now);
+  do {
+    due.setDate(due.getDate() + days);
+  } while (due.getTime() <= current.getTime());
+  return due.toISOString();
+}
+
+function normalizeDueAt(value: string | undefined, fallback: string) {
+  if (!value) return fallback;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? fallback : date.toISOString();
+}
+
+function normalizeRepeat(value: unknown): ScheduledTask["repeat"] {
+  return value === "daily" || value === "weekly" || value === "once" ? value : "once";
+}
+
+function normalizeChannel(value: unknown): ScheduledTask["channel"] {
+  return value === "chat" || value === "voice" || value === "pet" ? value : "pet";
+}
+
 function toMemory(row: MemoryRow): Memory {
   return {
     id: row.id,
@@ -1196,11 +1528,4 @@ function localDateKey(value: Date) {
   const month = String(value.getMonth() + 1).padStart(2, "0");
   const day = String(value.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
-}
-
-function estimateTokens(text: string) {
-  const cjk = text.match(/[\u3400-\u9fff]/g)?.length ?? 0;
-  const words = text.replace(/[\u3400-\u9fff]/g, " ").match(/[A-Za-z0-9_'-]+/g)?.length ?? 0;
-  const punctuation = text.match(/[^\sA-Za-z0-9_\u3400-\u9fff]/g)?.length ?? 0;
-  return Math.max(1, Math.ceil(cjk * 1.1 + words * 1.35 + punctuation * 0.35));
 }

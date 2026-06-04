@@ -10,11 +10,10 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import type { ProviderSummary, RuntimeStatsPayload, TokenUsageSummary } from "@pet/protocol";
+import type { ProviderSummary, RuntimeStatsPayload, ScheduledTask, TokenUsageSummary } from "@pet/protocol";
 import { PetAvatar } from "../pet/PetAvatar";
 import type { PetProfile, PetRigAsset } from "../pet/petProfile";
 import type { ConnectionStatus } from "../../hooks/usePetAgent";
-import type { ScheduledTask } from "./ScheduledTasksPanel";
 
 type HomeDashboardProps = {
   petProfile: PetProfile;

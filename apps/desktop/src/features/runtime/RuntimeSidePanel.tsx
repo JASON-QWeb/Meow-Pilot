@@ -4,6 +4,7 @@ import { PetdexSprite } from "../pet/PetdexSprite";
 import { getPetdexTemplate, pickFriendPetdexTemplate } from "../pet/petdexCatalog";
 import type { PetProfile } from "../pet/petProfile";
 import { usePersistentState } from "../../lib/usePersistentState";
+import { useVirtualWindow } from "../../hooks/useVirtualWindow";
 import type {
   AccountProfile,
   AiProviderId,
@@ -83,197 +84,7 @@ const providerOptions: Array<{ id: AiProviderId; label: string; defaultModel: st
 
 const defaultProviderOption = providerOptions[0]!;
 
-const extraSkills: SkillCatalogItem[] = [
-  {
-    name: "browser-control",
-    description: "打开、点击、截图和验证本地 Web 页面，适合前端验收。",
-    category: "browser",
-    permissions: ["browser:local"],
-    enabled: true,
-    path: "Browser/control-in-app-browser",
-    origin: "codex",
-    maturity: "available",
-  },
-  {
-    name: "playwright",
-    description: "用真实浏览器执行导航、表单、截图和 UI 流程检查。",
-    category: "browser",
-    permissions: ["browser:automation"],
-    enabled: true,
-    path: "~/.codex/skills/playwright",
-    origin: "codex",
-    maturity: "available",
-  },
-  {
-    name: "documents",
-    description: "创建和检查 docx 文档，支持渲染后视觉验收。",
-    category: "files",
-    permissions: ["file:write"],
-    enabled: true,
-    path: "Documents/skills/documents",
-    origin: "codex",
-    maturity: "available",
-  },
-  {
-    name: "spreadsheets",
-    description: "生成、分析和格式化 xlsx/csv 表格。",
-    category: "files",
-    permissions: ["file:write"],
-    enabled: true,
-    path: "Spreadsheets/skills/spreadsheets",
-    origin: "codex",
-    maturity: "available",
-  },
-  {
-    name: "presentations",
-    description: "制作 PPTX 演示文稿并做版面验证。",
-    category: "files",
-    permissions: ["file:write"],
-    enabled: true,
-    path: "Presentations/skills/presentations",
-    origin: "codex",
-    maturity: "available",
-  },
-  {
-    name: "pdf",
-    description: "读取、生成和渲染 PDF，适合合同、报告和票据检查。",
-    category: "files",
-    permissions: ["file:read", "file:write"],
-    enabled: true,
-    path: "~/.codex/skills/pdf",
-    origin: "codex",
-    maturity: "available",
-  },
-  {
-    name: "github-pr",
-    description: "检查 PR、处理 review comments、定位 CI 失败。",
-    category: "dev",
-    permissions: ["github:read", "github:write"],
-    enabled: true,
-    path: "GitHub/skills",
-    origin: "codex",
-    maturity: "available",
-  },
-  {
-    name: "openai-docs",
-    description: "查询 OpenAI 官方文档，帮助选择模型和升级提示词。",
-    category: "research",
-    permissions: ["network:openai-docs"],
-    enabled: true,
-    path: "~/.codex/skills/openai-docs",
-    origin: "codex",
-    maturity: "reference",
-  },
-  {
-    name: "imagegen",
-    description: "生成或编辑位图资产，用于宠物形象、贴纸和页面视觉。",
-    category: "creative",
-    permissions: ["image:generate"],
-    enabled: true,
-    path: "~/.codex/skills/imagegen",
-    origin: "codex",
-    maturity: "available",
-  },
-  {
-    name: "redesign-existing-projects",
-    description: "审计并升级现有前端项目，不迁移框架。",
-    category: "creative",
-    permissions: ["file:write"],
-    enabled: true,
-    path: "~/.agents/skills/redesign-existing-projects",
-    origin: "local",
-    maturity: "reference",
-  },
-  {
-    name: "skill-creator",
-    description: "创建新的 Codex skill，维护说明、脚本和资产目录。",
-    category: "dev",
-    permissions: ["file:write"],
-    enabled: true,
-    path: "~/.codex/skills/skill-creator",
-    origin: "codex",
-    maturity: "reference",
-  },
-  {
-    name: "skill-installer",
-    description: "从 curated 列表或 GitHub 路径安装 Codex skills。",
-    category: "dev",
-    permissions: ["file:write", "network:github"],
-    enabled: true,
-    path: "~/.codex/skills/skill-installer",
-    origin: "codex",
-    maturity: "reference",
-  },
-];
-
 const defaultInstalledFriendSkills: SkillSummary[] = [];
-
-const friendSkillOfferPool: PeerSkillOffer[] = [
-  {
-    name: "task-weaver",
-    description: "把聊天、会议和零散提醒整理成今日任务，并标出可立即执行的第一步。",
-    category: "productivity",
-    permissions: ["calendar:read", "memory:read"],
-    enabled: true,
-    pitch: "适合每天早上同步计划和晚上复盘。",
-  },
-  {
-    name: "research-snapshot",
-    description: "把一次搜索整理成来源卡、关键结论和继续追问列表。",
-    category: "research",
-    permissions: ["network:web", "file:write"],
-    enabled: true,
-    pitch: "适合做选题、竞品和资料速读。",
-  },
-  {
-    name: "ui-polish-review",
-    description: "快速审查界面层级、间距、状态和移动端适配风险。",
-    category: "creative",
-    permissions: ["browser:local", "file:read"],
-    enabled: true,
-    pitch: "适合前端页面交付前做一次视觉检查。",
-  },
-  {
-    name: "focus-soundboard",
-    description: "根据当前任务生成专注歌单、番茄钟节奏和收尾提示。",
-    category: "media",
-    permissions: ["network:music-provider"],
-    enabled: true,
-    pitch: "适合写作、编码和整理资料时使用。",
-  },
-  {
-    name: "issue-briefing",
-    description: "把报错、日志和改动摘要压缩成可交接的问题说明。",
-    category: "dev",
-    permissions: ["file:read"],
-    enabled: true,
-    pitch: "适合把调试现场交给另一个智能体继续处理。",
-  },
-  {
-    name: "memory-merge",
-    description: "把新的偏好和稳定习惯合并进长期记忆，保留隐私边界。",
-    category: "productivity",
-    permissions: ["memory:read", "memory:write"],
-    enabled: true,
-    pitch: "适合频繁微调宠物人格和工作习惯的人。",
-  },
-  {
-    name: "doc-checkline",
-    description: "检查文档结构、缺失段落、格式一致性和交付前清单。",
-    category: "files",
-    permissions: ["file:read", "file:write"],
-    enabled: true,
-    pitch: "适合合同、说明书和周报交付前整理。",
-  },
-  {
-    name: "prompt-tuner",
-    description: "把一段粗略指令改成边界清楚、可复用的执行提示。",
-    category: "dev",
-    permissions: ["file:read"],
-    enabled: true,
-    pitch: "适合沉淀自己的工作流模板。",
-  },
-];
 
 const categoryLabels: Record<string, string> = {
   productivity: "效率",
@@ -329,6 +140,7 @@ export function RuntimeSidePanel({
   const [voiceNotice, setVoiceNotice] = useState("");
   const [memoryNotice, setMemoryNotice] = useState("");
   const [savingMemorySection, setSavingMemorySection] = useState<MemorySectionId | null>(null);
+  const toolRunWindow = useVirtualWindow(toolRuns, { estimateItemHeight: 86, overscan: 8, enabled: toolRuns.length > 40 });
 
   const memoryText = useMemo(() => memories.map((memory) => memory.content).join("\n"), [memories]);
   const savedPetPersona = useMemo(
@@ -366,9 +178,8 @@ export function RuntimeSidePanel({
     () => friendCards.find((friend) => friend.id === activeExchangeFriendId) ?? null,
     [activeExchangeFriendId, friendCards],
   );
-  const activeExchangeSkills = useMemo(() => (activeExchangeFriend ? offeredSkillsForFriend(activeExchangeFriend) : []), [activeExchangeFriend]);
   const installedSkillNames = useMemo(
-    () => new Set([...skills, ...installedFriendSkills, ...extraSkills].map((skill) => skill.name)),
+    () => new Set([...skills, ...installedFriendSkills].map((skill) => skill.name)),
     [installedFriendSkills, skills],
   );
   const localPetTemplate = getPetdexTemplate(petProfile?.appearance === "petdex-sprite" ? petProfile.petdexSlug : undefined);
@@ -468,6 +279,21 @@ export function RuntimeSidePanel({
 
   if (view === "tools") {
     const dangerousCount = pendingPermissions.filter((permission) => permission.permissionLevel === "dangerous").length;
+    const renderToolRun = (run: ToolRunRecord) => (
+      <article className={`toolAuditItem status-${run.status}`} key={run.id}>
+        <span className="toolAuditIcon">
+          {run.toolName.startsWith("file_") ? <FileText size={16} /> : <SquareTerminal size={16} />}
+        </span>
+        <div>
+          <header>
+            <strong>{run.toolName}</strong>
+            <span>{toolRunStatusLabel(run.status)}</span>
+          </header>
+          <p>{run.summary ?? toolRunPreview(run.output) ?? toolRunPreview(run.input)}</p>
+          <small>{formatRuntimeTime(run.completedAt ?? run.createdAt)}{run.cwd ? ` · ${run.cwd}` : ""}</small>
+        </div>
+      </article>
+    );
     return (
       <section className="toolsPage" aria-label="工具与权限">
         <section className="toolsHero">
@@ -568,23 +394,17 @@ export function RuntimeSidePanel({
             </div>
             <span>{toolRuns.length} 条</span>
           </div>
-          <div className="toolAuditList">
+          <div className={`toolAuditList ${toolRunWindow.enabled ? "virtualized" : ""}`} ref={toolRunWindow.containerRef} onScroll={toolRunWindow.onScroll}>
             {toolRuns.length ? (
-              toolRuns.map((run) => (
-                <article className={`toolAuditItem status-${run.status}`} key={run.id}>
-                  <span className="toolAuditIcon">
-                    {run.toolName.startsWith("file_") ? <FileText size={16} /> : <SquareTerminal size={16} />}
-                  </span>
-                  <div>
-                    <header>
-                      <strong>{run.toolName}</strong>
-                      <span>{toolRunStatusLabel(run.status)}</span>
-                    </header>
-                    <p>{run.summary ?? toolRunPreview(run.output) ?? toolRunPreview(run.input)}</p>
-                    <small>{formatRuntimeTime(run.completedAt ?? run.createdAt)}{run.cwd ? ` · ${run.cwd}` : ""}</small>
+              toolRunWindow.enabled ? (
+                <div className="virtualListSpacer" style={{ height: toolRunWindow.totalHeight }}>
+                  <div className="toolAuditVirtualWindow" style={{ transform: `translateY(${toolRunWindow.offsetY}px)` }}>
+                    {toolRunWindow.items.map(({ item: run }) => renderToolRun(run))}
                   </div>
-                </article>
-              ))
+                </div>
+              ) : (
+                toolRunWindow.items.map(({ item: run }) => renderToolRun(run))
+              )
             ) : (
               <article className="emptyPermissionState compact">
                 <Shield size={20} />
@@ -664,12 +484,12 @@ export function RuntimeSidePanel({
               <div className="friendActions">
                 <button
                   type="button"
-                  onClick={() => exchangeSkill(friend)}
+                  onClick={() => void exchangeSkill(friend)}
                   aria-expanded={activeExchangeFriendId === friend.id}
-                  aria-label={`查看 ${friend.petName} 展示的 Skill`}
+                  aria-label={`和 ${friend.petName} 记录一次本地交换`}
                 >
                   <RefreshCw size={15} />
-                  {activeExchangeFriendId === friend.id ? "正在交换" : "交换 Skill"}
+                  记录交换
                 </button>
               </div>
             </article>
@@ -696,8 +516,8 @@ export function RuntimeSidePanel({
               <header className="exchangeModalHeader">
                 <div>
                   <p className="eyebrow">Skill exchange</p>
-                  <h3>{activeExchangeFriend.petName} 正在展示 Skill</h3>
-                  <span>{activeExchangeFriend.displayName} · {activeExchangeFriend.handle} · {activeExchangeSkills.length} 个公开选择</span>
+                  <h3>{activeExchangeFriend.petName} 的交换记录</h3>
+                  <span>{activeExchangeFriend.displayName} · {activeExchangeFriend.handle}</span>
                 </div>
                 <button className="exchangeCloseButton" type="button" onClick={closeExchangeModal} aria-label="关闭 Skill 交换弹窗">
                   <X size={16} />
@@ -722,7 +542,7 @@ export function RuntimeSidePanel({
                   <span className="exchangePacket">
                     <PackagePlus size={17} />
                   </span>
-                  <strong>{exchangePulseSkillName ?? "选择一个 Skill 开始交换"}</strong>
+                  <strong>{exchangePulseSkillName ?? "等待真实好友 Skill 数据"}</strong>
                 </div>
 
                 <article className="exchangePetNode local">
@@ -740,7 +560,7 @@ export function RuntimeSidePanel({
               </section>
 
               <section className="exchangeSkillShelf modalShelf" aria-label="可安装 Skill">
-                {activeExchangeSkills.map((skill) => {
+                {[].map((skill: PeerSkillOffer) => {
                   const installed = installedSkillNames.has(skill.name);
                   const transferring = exchangePulseSkillName === skill.name;
                   return (
@@ -1022,10 +842,16 @@ export function RuntimeSidePanel({
     </section>
   );
 
-  function exchangeSkill(friend: FriendCard) {
-    setActiveExchangeFriendId((current) => (current === friend.id ? null : friend.id));
+  async function exchangeSkill(friend: FriendCard) {
     setExchangePulseSkillName(null);
     setFriendNotice("");
+    if (!friend.real) return;
+    try {
+      await onExchangeFriend(friend.id);
+      setFriendNotice(`已记录和 ${friend.displayName} 的本地交换。`);
+    } catch (error) {
+      setFriendNotice(error instanceof Error ? error.message : "交换记录写入失败");
+    }
   }
 
   function closeExchangeModal() {
@@ -1068,7 +894,7 @@ export function RuntimeSidePanel({
   function sendFriendMessage(friend: FriendCard) {
     const message = (friendMessageDrafts[friend.id] ?? "").trim();
     if (!message) return;
-    setFriendNotice(`已向 ${friend.displayName} 发送消息：${message}`);
+    setFriendNotice(`好友消息通道尚未接入运行时，未发送给 ${friend.displayName}。`);
     setFriendMessageDrafts((drafts) => {
       const next = { ...drafts };
       delete next[friend.id];
@@ -1089,7 +915,7 @@ function groupSkills(runtimeSkills: SkillSummary[], installedSkills: SkillSummar
     maturity: "active",
   }));
   const seen = new Set<string>();
-  const merged = [...runtimeItems, ...installedItems, ...extraSkills].filter((skill) => {
+  const merged = [...runtimeItems, ...installedItems].filter((skill) => {
     const key = `${skill.category}:${skill.name}`;
     if (seen.has(key)) return false;
     seen.add(key);
@@ -1143,19 +969,6 @@ function formatRuntimeTime(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
-}
-
-function offeredSkillsForFriend(friend: FriendCard) {
-  const start = hashText(`${friend.id}:${friend.handle}:${friend.petName}`) % friendSkillOfferPool.length;
-  return [0, 2, 5].map((offset) => friendSkillOfferPool[(start + offset) % friendSkillOfferPool.length]!);
-}
-
-function hashText(value: string) {
-  let hash = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
-  }
-  return hash;
 }
 
 function extractSection(content: string, title: string) {

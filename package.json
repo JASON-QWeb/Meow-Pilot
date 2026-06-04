@@ -12,6 +12,8 @@
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm --filter @pet/protocol build && pnpm -r --if-present test && pnpm test:data-policy",
     "test:data-policy": "tsx scripts/verify-main-data-policy.ts",
+    "tauri:prepare": "node scripts/prepare-node-runtime.mjs && node scripts/build-calendar-helper.mjs",
+    "dist:macos:direct": "pnpm --filter @pet/desktop tauri:build:dmg",
     "migrate:scan": "tsx scripts/migrate/scan.ts",
     "migrate:import": "tsx scripts/migrate/scan.ts --apply"
   },

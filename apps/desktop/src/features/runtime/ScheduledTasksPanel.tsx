@@ -1,22 +1,12 @@
 import { Bell, CalendarDays, Check, Clock, Plus, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
-
-export type ScheduledTaskRepeat = "once" | "daily" | "weekly";
-
-export type ScheduledTask = {
-  id: string;
-  title: string;
-  dueAt: string;
-  repeat: ScheduledTaskRepeat;
-  channel: "pet" | "chat" | "voice";
-  enabled: boolean;
-  createdAt: string;
-  completedAt?: string;
-};
+import type { ScheduledTask, ScheduledTaskRepeat, TaskCreateParams, TaskUpdateParams } from "@pet/protocol";
 
 type ScheduledTasksPanelProps = {
   tasks: ScheduledTask[];
-  onChange: (tasks: ScheduledTask[]) => void;
+  onCreateTask: (params: TaskCreateParams) => Promise<unknown>;
+  onUpdateTask: (taskId: string, updates: Omit<TaskUpdateParams, "taskId">) => Promise<unknown>;
+  onDeleteTask: (taskId: string) => Promise<unknown>;
 };
 
 const repeatLabels: Record<ScheduledTaskRepeat, string> = {
@@ -31,7 +21,7 @@ const channelLabels: Record<ScheduledTask["channel"], string> = {
   voice: "语音提醒",
 };
 
-export function ScheduledTasksPanel({ tasks, onChange }: ScheduledTasksPanelProps) {
+export function ScheduledTasksPanel({ tasks, onCreateTask, onUpdateTask, onDeleteTask }: ScheduledTasksPanelProps) {
   const defaultDue = nextHourInputValue();
   const [title, setTitle] = useState("");
   const [dueAt, setDueAt] = useState(defaultDue);
@@ -145,16 +135,13 @@ export function ScheduledTasksPanel({ tasks, onChange }: ScheduledTasksPanelProp
   function addTask() {
     const value = title.trim();
     if (!value || !dueAt) return;
-    const task: ScheduledTask = {
-      id: `task_${crypto.randomUUID()}`,
+    void onCreateTask({
       title: value,
       dueAt: new Date(dueAt).toISOString(),
       repeat,
       channel,
       enabled: true,
-      createdAt: new Date().toISOString(),
-    };
-    onChange([task, ...tasks]);
+    });
     setTitle("");
     setDueAt(nextHourInputValue());
     setRepeat("once");
@@ -162,43 +149,23 @@ export function ScheduledTasksPanel({ tasks, onChange }: ScheduledTasksPanelProp
   }
 
   function completeTask(taskId: string) {
-    onChange(
-      tasks.map((task) => {
-        if (task.id !== taskId) return task;
-        if (task.repeat === "daily") return { ...task, dueAt: addDays(task.dueAt, 1), completedAt: new Date().toISOString() };
-        if (task.repeat === "weekly") return { ...task, dueAt: addDays(task.dueAt, 7), completedAt: new Date().toISOString() };
-        return { ...task, enabled: false, completedAt: new Date().toISOString() };
-      }),
-    );
+    const task = tasks.find((item) => item.id === taskId);
+    if (!task) return;
+    const completedAt = new Date().toISOString();
+    if (task.repeat === "daily") {
+      void onUpdateTask(taskId, { dueAt: addDays(task.dueAt, 1), completedAt });
+      return;
+    }
+    if (task.repeat === "weekly") {
+      void onUpdateTask(taskId, { dueAt: addDays(task.dueAt, 7), completedAt });
+      return;
+    }
+    void onUpdateTask(taskId, { enabled: false, completedAt });
   }
 
   function deleteTask(taskId: string) {
-    onChange(tasks.filter((task) => task.id !== taskId));
+    void onDeleteTask(taskId);
   }
-}
-
-export function createDefaultTasks(): ScheduledTask[] {
-  const now = Date.now();
-  return [
-    {
-      id: "task_water_break",
-      title: "喝水和活动肩颈",
-      dueAt: new Date(now + 42 * 60_000).toISOString(),
-      repeat: "daily",
-      channel: "pet",
-      enabled: true,
-      createdAt: new Date(now - 3_600_000).toISOString(),
-    },
-    {
-      id: "task_evening_review",
-      title: "整理今天未完成事项",
-      dueAt: new Date(now + 4 * 3_600_000).toISOString(),
-      repeat: "daily",
-      channel: "chat",
-      enabled: true,
-      createdAt: new Date(now - 7_200_000).toISOString(),
-    },
-  ];
 }
 
 function formatDue(value: string) {

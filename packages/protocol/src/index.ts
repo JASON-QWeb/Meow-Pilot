@@ -51,6 +51,10 @@ export type LocalRpcMethod =
   | "friend.list"
   | "friend.add"
   | "social.exchange"
+  | "task.list"
+  | "task.create"
+  | "task.update"
+  | "task.delete"
   | "memory.list"
   | "memory.query"
   | "memory.propose"
@@ -80,6 +84,7 @@ export type LocalEventName =
   | "tool.run"
   | "pet.emotion"
   | "pet.activity"
+  | "task.changed"
   | "ui.surface.create"
   | "ui.surface.update"
   | "ui.surface.delete";
@@ -267,6 +272,81 @@ export type SocialExchangeParams = {
 
 export type SocialExchangePayload = {
   exchange: SocialExchangeRecord;
+};
+
+export type ScheduledTaskRepeat = "once" | "daily" | "weekly";
+
+export type ScheduledTaskChannel = "pet" | "chat" | "voice";
+
+export type ScheduledTask = {
+  id: string;
+  title: string;
+  dueAt: string;
+  repeat: ScheduledTaskRepeat;
+  channel: ScheduledTaskChannel;
+  enabled: boolean;
+  note?: string;
+  createdAt: string;
+  updatedAt?: string;
+  completedAt?: string;
+  lastTriggeredAt?: string;
+};
+
+export type TaskTriggerRecord = {
+  id: string;
+  taskId: string;
+  triggeredAt: string;
+  channel: ScheduledTaskChannel;
+  status: "sent" | "skipped" | "failed";
+  summary?: string;
+};
+
+export type TaskListPayload = {
+  tasks: ScheduledTask[];
+};
+
+export type TaskCreateParams = {
+  title: string;
+  dueAt?: string;
+  repeat?: ScheduledTaskRepeat;
+  channel?: ScheduledTaskChannel;
+  note?: string;
+  enabled?: boolean;
+};
+
+export type TaskCreatePayload = {
+  task: ScheduledTask;
+};
+
+export type TaskUpdateParams = {
+  taskId: string;
+  title?: string;
+  dueAt?: string;
+  repeat?: ScheduledTaskRepeat;
+  channel?: ScheduledTaskChannel;
+  note?: string | null;
+  enabled?: boolean;
+  completedAt?: string | null;
+};
+
+export type TaskUpdatePayload = {
+  task: ScheduledTask;
+};
+
+export type TaskDeleteParams = {
+  taskId: string;
+};
+
+export type TaskDeletePayload = {
+  taskId: string;
+  deleted: true;
+};
+
+export type TaskChangedEvent = {
+  action: "created" | "updated" | "deleted" | "triggered";
+  task?: ScheduledTask;
+  taskId?: string;
+  tasks: ScheduledTask[];
 };
 
 export type AgentLifecycleEvent = {

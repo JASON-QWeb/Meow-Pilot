@@ -3,13 +3,15 @@ import { promisify } from "node:util";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, resolve, relative } from "node:path";
-import { jsonSchema, tool, type ToolSet } from "ai";
+import { jsonSchema, tool, type ModelMessage, type ToolSet } from "ai";
 import { load as loadHtml } from "cheerio";
-import { generateWithAiSdk } from "../providers/aiSdk";
+import { streamAgentStepWithAiSdk } from "../providers/aiSdk";
 import type {
   Memory,
   PermissionRequest,
+  ScheduledTask,
   SkillManageParams,
+  SurfaceSpec,
   ToolInvokeParams,
   ToolInvokePayload,
   ToolRunRecord,
@@ -61,6 +63,11 @@ type ToolExecutionResult = {
   cwd?: string;
 };
 
+type ToolRegistryOptions = {
+  onTaskChanged?: (action: "created" | "updated" | "deleted" | "triggered", task?: ScheduledTask) => void;
+  onSurfaceUpdated?: (sessionId: string, surface: SurfaceSpec) => void;
+};
+
 export class ToolRegistry {
   private readonly tools = new Map<string, ToolDefinition>();
 
@@ -70,6 +77,7 @@ export class ToolRegistry {
     private readonly skills: SkillService,
     private readonly workspaceRoot = findWorkspaceRoot(),
     extraTools: ToolDefinition[] = [],
+    private readonly options: ToolRegistryOptions = {},
   ) {
     for (const tool of [...this.createTools(), ...extraTools]) this.register(tool);
   }
@@ -83,9 +91,10 @@ export class ToolRegistry {
     return [...this.tools.values()].map((tool) => tool.summary);
   }
 
-  aiSdkTools(): ToolSet {
+  aiSdkTools(allowedNames?: Iterable<string>): ToolSet {
+    const allowed = allowedNames ? new Set(allowedNames) : null;
     return Object.fromEntries(
-      [...this.tools.values()].map((definition) => [
+      [...this.tools.values()].filter((definition) => !allowed || allowed.has(definition.summary.name)).map((definition) => [
         definition.summary.name,
         tool({
           description: `${definition.summary.description} 权限级别：${definition.summary.permissionLevel}`,
@@ -382,9 +391,10 @@ export class ToolRegistry {
           if (!search) throw new Error("file_patch requires search.");
           const before = await readFile(path, "utf8");
           if (!before.includes(search)) throw new Error("Search text was not found.");
-          const after = before.replace(search, replace);
+          const replacements = countOccurrences(before, search);
+          const after = before.split(search).join(replace);
           await writeFile(path, after, "utf8");
-          return { output: { path, replacements: 1 }, summary: `已修改 ${relative(this.workspaceRoot, path) || path}` };
+          return { output: { path, replacements }, summary: `已修改 ${relative(this.workspaceRoot, path) || path}，替换 ${replacements} 处。` };
         },
       },
       {
@@ -612,7 +622,7 @@ export class ToolRegistry {
       {
         summary: {
           name: "surface_update",
-          description: "生成 Surface 更新草案。",
+          description: "更新已渲染 Surface。",
           category: "surface",
           permissionLevel: "read",
           inputSchema: inputSchema({
@@ -620,7 +630,18 @@ export class ToolRegistry {
             patch: objectProperty("更新草案对象。"),
           }),
         },
-        run: (input) => ({ output: { patch: input }, summary: "已生成 Surface 更新草案。" }),
+        run: (input, context) => {
+          const sessionId = context.sessionId;
+          const surfaceId = readString(input.surfaceId);
+          if (!sessionId) throw new Error("surface_update requires session context.");
+          if (!surfaceId) throw new Error("surface_update requires surfaceId.");
+          const current = this.store.getSurface(sessionId, surfaceId);
+          if (!current) throw new Error(`Surface not found: ${surfaceId}`);
+          const updated = this.store.updateSurface(sessionId, applySurfacePatch(current, input.patch));
+          if (!updated) throw new Error(`Surface not found: ${surfaceId}`);
+          this.options.onSurfaceUpdated?.(sessionId, updated);
+          return { output: { surface: updated }, summary: `已更新 Surface：${updated.title ?? updated.id}` };
+        },
       },
       {
         summary: {
@@ -655,8 +676,21 @@ export class ToolRegistry {
         },
       },
       {
-        summary: { name: "calendar_read", description: "读取日程摘要。", category: "calendar", permissionLevel: "read", inputSchema: EMPTY_INPUT_SCHEMA },
-        run: () => ({ output: { events: [], note: "尚未接入系统日历，当前返回空日程。" }, summary: "当前没有可用日程数据。" }),
+        summary: {
+          name: "calendar_read",
+          description: "读取 macOS 日历摘要。",
+          category: "calendar",
+          permissionLevel: "read",
+          inputSchema: inputSchema({
+            start: stringProperty("开始日期或时间，默认今天。"),
+            end: stringProperty("结束日期或时间。"),
+            days: numberProperty("从 start 起读取多少天，默认 1 天。"),
+          }),
+        },
+        run: async (input) => {
+          const calendar = await readCalendarEvents(input, this.workspaceRoot);
+          return { output: calendar, summary: calendar.summary };
+        },
       },
       {
         summary: {
@@ -807,7 +841,7 @@ export class ToolRegistry {
             ["task"],
           ),
         },
-        run: async (input) => runSubAgent("research", readString(input.task), readString(input.context)),
+        run: async (input, context) => runSubAgent("research", readString(input.task), readString(input.context), this, context),
       },
       {
         summary: {
@@ -823,7 +857,7 @@ export class ToolRegistry {
             ["task"],
           ),
         },
-        run: async (input) => runSubAgent("code", readString(input.task), readString(input.context)),
+        run: async (input, context) => runSubAgent("code", readString(input.task), readString(input.context), this, context),
       },
       {
         summary: {
@@ -835,13 +869,27 @@ export class ToolRegistry {
             {
               title: stringProperty("待办标题。"),
               dueAt: stringProperty("截止时间或提醒时间。"),
+              repeat: stringProperty("重复规则。", { enum: ["once", "daily", "weekly"] }),
+              channel: stringProperty("提醒方式。", { enum: ["pet", "chat", "voice"] }),
               note: stringProperty("补充说明。"),
             },
             ["title"],
           ),
         },
         approval: (input) => ({ required: true, title: "创建待办", description: readString(input.title) ?? "创建待办", permissionLevel: "confirm", risk: "会写入本地任务列表或提醒系统。" }),
-        run: (input) => ({ output: { id: `task_${crypto.randomUUID()}`, title: readString(input.title) ?? "新任务", createdAt: new Date().toISOString() }, summary: "待办草案已创建。" }),
+        run: (input) => {
+          const title = readString(input.title);
+          if (!title) throw new Error("task_create requires title.");
+          const task = this.store.createTask({
+            title,
+            dueAt: readString(input.dueAt) ?? defaultTaskDueAt(),
+            repeat: readTaskRepeat(input.repeat),
+            channel: readTaskChannel(input.channel),
+            note: readString(input.note),
+          });
+          this.options.onTaskChanged?.("created", task);
+          return { output: { task }, summary: `已创建待办：${task.title}` };
+        },
       },
       {
         summary: {
@@ -981,7 +1029,7 @@ function filePatchApproval(input: Record<string, unknown>, workspaceRoot: string
   const before = existsSync(path) ? readFileSync(path, "utf8") : "";
   const search = readString(input.search) ?? "";
   const replace = readString(input.replace) ?? "";
-  const after = search ? before.replace(search, replace) : before;
+  const after = search ? before.split(search).join(replace) : before;
   return {
     required: true,
     title: "确认修改文件",
@@ -1111,23 +1159,82 @@ async function fetchWebPage(url: string) {
   return { url, status: response.status, contentType, title, text, headings, links };
 }
 
-async function runSubAgent(kind: "research" | "code", task: string | undefined, context: string | undefined) {
+async function runSubAgent(kind: "research" | "code", task: string | undefined, context: string | undefined, registry: ToolRegistry, toolContext: ToolContext) {
   if (!task) throw new Error(`subagent_${kind} requires task.`);
   const role = kind === "research" ? "研究子 Agent" : "代码分析子 Agent";
+  const allowedTools = kind === "research" ? ["file_read", "file_search", "web_fetch", "web_search"] : ["file_read", "file_search", "file_list"];
   const prompt = [
     `你是 Meow Pilot 的${role}。`,
-    "只完成委派任务，输出简洁结论、关键依据、风险或下一步建议。不要调用工具，不要声称执行了外部操作。",
+    "只完成委派任务，输出简洁结论、关键依据、风险或下一步建议。",
+    `你只能使用这些受限工具：${allowedTools.join(", ")}。不要请求终端、写文件、删除、移动、记忆写入或社交工具。`,
     "",
     `任务：${task}`,
     context ? `上下文：\n${context}` : "",
   ].filter(Boolean).join("\n");
-  const result = await generateWithAiSdk(prompt, []);
-  if (!result) {
+  const firstStep = await streamAgentStepWithAiSdk({
+    instructions: prompt,
+    messages: [{ role: "user", content: task }] satisfies ModelMessage[],
+    tools: registry.aiSdkTools(allowedTools),
+  });
+  if (!firstStep) {
     return { output: { status: "unavailable", reason: "没有可用模型配置。", task }, summary: "子 Agent 未运行：没有可用模型配置。" };
   }
+
+  if (!firstStep.toolCalls.length) {
+    const text = firstStep.text.trim();
+    return {
+      output: { status: "success", kind, text, provider: firstStep.provider, model: firstStep.model, tools: [] },
+      summary: text.slice(0, 240),
+    };
+  }
+
+  const toolResults = [];
+  for (const call of firstStep.toolCalls.slice(0, 3)) {
+    if (!allowedTools.includes(call.toolName)) {
+      toolResults.push({ tool: call.toolName, status: "blocked", result: "该工具不在子 Agent 允许范围内。" });
+      continue;
+    }
+    const payload = await registry.invoke(
+      {
+        name: call.toolName,
+        input: call.input,
+        sessionId: toolContext.sessionId,
+        runId: toolContext.runId,
+        source: "agent",
+      },
+      { sessionId: toolContext.sessionId, runId: toolContext.runId },
+    );
+    toolResults.push({
+      tool: call.toolName,
+      status: payload.run.status,
+      permissionId: payload.run.permissionId,
+      result: payload.result,
+      summary: payload.run.summary,
+    });
+  }
+
+  const finalStep = await streamAgentStepWithAiSdk({
+    instructions: [
+      prompt,
+      "",
+      "根据受限工具结果输出最终结论。不要再调用工具；如果工具等待权限，说明需要用户批准后才能继续。",
+    ].join("\n"),
+    messages: [
+      {
+        role: "user",
+        content: [
+          `任务：${task}`,
+          firstStep.text.trim() ? `初步结论：${firstStep.text.trim()}` : "",
+          `工具结果：${JSON.stringify(toolResults).slice(0, MAX_TOOL_OUTPUT)}`,
+        ].filter(Boolean).join("\n\n"),
+      },
+    ] satisfies ModelMessage[],
+    tools: {},
+  });
+  const text = finalStep?.text.trim() || firstStep.text.trim() || summarizeOutput(toolResults);
   return {
-    output: { status: "success", kind, text: result.text, provider: result.provider, model: result.model },
-    summary: result.text.slice(0, 240),
+    output: { status: "success", kind, text, provider: finalStep?.provider ?? firstStep.provider, model: finalStep?.model ?? firstStep.model, tools: toolResults },
+    summary: text.slice(0, 240),
   };
 }
 
@@ -1189,6 +1296,140 @@ function createSurfaceFromInput(input: Record<string, unknown>) {
     },
     createdAt: now,
   };
+}
+
+function applySurfacePatch(surface: SurfaceSpec, patch: unknown): SurfaceSpec {
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) return surface;
+  const value = patch as Record<string, unknown>;
+  return {
+    ...surface,
+    ...(typeof value.title === "string" ? { title: value.title.slice(0, 120) } : {}),
+    ...(isSurfaceType(value.type) ? { type: value.type } : {}),
+    ...(isSurfaceIntent(value.intent) ? { intent: value.intent } : {}),
+    ...(value.layout && typeof value.layout === "object" ? { layout: value.layout as SurfaceSpec["layout"] } : {}),
+    ...(value.data && typeof value.data === "object" && !Array.isArray(value.data) ? { data: value.data as Record<string, unknown> } : {}),
+    ...(Array.isArray(value.actions) ? { actions: value.actions as SurfaceSpec["actions"] } : {}),
+    ...(typeof value.expiresAt === "string" ? { expiresAt: value.expiresAt } : {}),
+  };
+}
+
+function isSurfaceType(value: unknown): value is SurfaceSpec["type"] {
+  return value === "bubble" || value === "panel" || value === "media" || value === "modal" || value === "canvas" || value === "mini-widget";
+}
+
+function isSurfaceIntent(value: unknown): value is SurfaceSpec["intent"] {
+  return value === "chat" || value === "search" || value === "calendar" || value === "weather" || value === "music" || value === "video" || value === "task" || value === "memory" || value === "skill" || value === "settings";
+}
+
+function readTaskRepeat(value: unknown): ScheduledTask["repeat"] {
+  return value === "daily" || value === "weekly" || value === "once" ? value : "once";
+}
+
+function readTaskChannel(value: unknown): ScheduledTask["channel"] {
+  return value === "chat" || value === "voice" || value === "pet" ? value : "pet";
+}
+
+function defaultTaskDueAt() {
+  return new Date(Date.now() + 3_600_000).toISOString();
+}
+
+async function readCalendarEvents(input: Record<string, unknown>, workspaceRoot: string) {
+  const range = calendarRange(input);
+  const helper = calendarHelperPath(workspaceRoot);
+  if (!helper) {
+    return {
+      source: "eventkit",
+      available: false,
+      range,
+      events: [],
+      summary: "未找到随包 EventKit 日历助手。请先运行 pnpm --workspace-root tauri:prepare，或使用 Tauri 安装包中的 runtime。",
+    };
+  }
+
+  const command = `${shellQuote(helper)} --start ${shellQuote(range.start)} --end ${shellQuote(range.end)}`;
+  const { stdout, stderr, exitCode } = await runShellCommand(command, {
+    cwd: workspaceRoot,
+    timeout: 8_000,
+    env: allowedEnv(undefined),
+    shell: process.env.SHELL || "/bin/zsh",
+  });
+  if (exitCode !== 0) {
+    return {
+      source: "eventkit",
+      available: false,
+      range,
+      events: [],
+      error: stderr.trim() || `EventKit helper exited with code ${exitCode}`,
+      summary: "读取系统日历失败。",
+    };
+  }
+
+  try {
+    const payload = JSON.parse(stdout.trim() || "{}") as Record<string, unknown>;
+    const events = Array.isArray(payload.events) ? payload.events : [];
+    return {
+      ...payload,
+      source: "eventkit",
+      available: payload.available !== false,
+      range: isRecord(payload.range) ? payload.range : range,
+      events,
+      summary: typeof payload.summary === "string" ? payload.summary : events.length ? `读取到 ${events.length} 个日程。` : "当前时间范围内没有日程。",
+    };
+  } catch (error) {
+    return {
+      source: "eventkit",
+      available: false,
+      range,
+      events: [],
+      error: error instanceof Error ? error.message : String(error),
+      summary: "解析系统日历结果失败。",
+    };
+  }
+}
+
+function calendarHelperPath(workspaceRoot: string) {
+  const candidates = [
+    process.env.PET_NATIVE_CALENDAR_HELPER,
+    process.env.PET_AGENTD_RESOURCE_DIR ? resolve(process.env.PET_AGENTD_RESOURCE_DIR, "calendar-helper", "pet-calendar-helper") : undefined,
+    process.env.PET_AGENTD_RESOURCE_DIR ? resolve(process.env.PET_AGENTD_RESOURCE_DIR, "resources", "calendar-helper", "pet-calendar-helper") : undefined,
+    resolve(workspaceRoot, "apps", "desktop", "src-tauri", "resources", "calendar-helper", "pet-calendar-helper"),
+    resolve(findWorkspaceRoot(), "apps", "desktop", "src-tauri", "resources", "calendar-helper", "pet-calendar-helper"),
+  ];
+  return candidates.find((candidate) => candidate && existsSync(candidate));
+}
+
+function calendarRange(input: Record<string, unknown>) {
+  const startDate = parseDateInput(readString(input.start)) ?? startOfToday();
+  const explicitEnd = parseDateInput(readString(input.end), undefined);
+  const days = clampNumber(input.days, 1, 14, 1);
+  const endDate = explicitEnd ?? addDays(startDate, days);
+  return {
+    start: startDate.toISOString(),
+    end: endDate.toISOString(),
+  };
+}
+
+function parseDateInput(value: string | undefined, fallback?: Date) {
+  if (!value) return fallback;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? fallback : date;
+}
+
+function startOfToday() {
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function countOccurrences(value: string, search: string) {
+  if (!search) return 0;
+  return value.split(search).length - 1;
 }
 
 function unifiedDiff(path: string, before: string, after: string) {
@@ -1344,6 +1585,10 @@ function normalizeWhitespace(value: string) {
 
 function isDefined<T>(value: T | null | undefined): value is T {
   return value !== null && value !== undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function shellQuote(value: string) {

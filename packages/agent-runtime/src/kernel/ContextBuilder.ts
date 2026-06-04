@@ -2,6 +2,7 @@ import type { ChatMessage, SkillSummary, ToolSummary } from "@pet/protocol";
 import type { MemoryService } from "../memory/MemoryService";
 import type { SkillService } from "../skills/SkillService";
 import type { PetStore, RuntimeSession } from "../storage";
+import { estimateTokens } from "../tokens";
 
 export class ContextBuilder {
   constructor(
@@ -76,8 +77,4 @@ function takeWithinBudget<T>(items: T[], budget: number, text: (item: T) => stri
 function contextTokenBudget() {
   const configured = Number(process.env.PET_CONTEXT_TOKEN_BUDGET);
   return Number.isFinite(configured) && configured > 4096 ? Math.floor(configured) : 24_000;
-}
-
-function estimateTokens(text: string) {
-  return Math.ceil(text.length / 3);
 }

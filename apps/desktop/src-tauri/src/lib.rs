@@ -69,17 +69,21 @@ fn start_agent_runtime(app: &tauri::AppHandle) -> Option<Child> {
 
     let resource_dir = app.path().resource_dir().ok()?;
     let server = find_agent_server(&resource_dir)?;
+    let node = packaged_node_binary(&resource_dir).unwrap_or_else(system_node_binary);
+    let calendar_helper = packaged_calendar_helper(&resource_dir);
     let data_dir = app.path().app_data_dir().ok()?;
     create_dir_all(&data_dir).ok()?;
     let pet_data_dir = data_dir.join(".pet");
     create_dir_all(&pet_data_dir).ok()?;
     let log_path = data_dir.join("agent-runtime.log");
     let script = format!(
-        "cd {} && PET_AGENTD_HOST='127.0.0.1' PET_AGENTD_PORT='4747' PET_AGENTD_DB={} PET_AI_CONFIG_PATH={} exec {} --no-experimental-detect-module {} >>{} 2>&1",
+        "cd {} && PET_AGENTD_HOST='127.0.0.1' PET_AGENTD_PORT='4747' PET_AGENTD_DB={} PET_AI_CONFIG_PATH={} PET_AGENTD_RESOURCE_DIR={} PET_NATIVE_CALENDAR_HELPER={} exec {} --experimental-sqlite --no-experimental-detect-module {} >>{} 2>&1",
         shell_quote(&data_dir),
         shell_quote(&pet_data_dir.join("pet-agentd.sqlite")),
         shell_quote(&pet_data_dir.join("ai-provider.json")),
-        shell_quote(&node_binary()),
+        shell_quote(&resource_dir),
+        shell_quote(&calendar_helper.unwrap_or_default()),
+        shell_quote(&node),
         shell_quote(&server),
         shell_quote(&log_path)
     );
@@ -102,7 +106,31 @@ fn stop_launchd_agent() {
         .status();
 }
 
-fn node_binary() -> PathBuf {
+fn packaged_node_binary(resource_dir: &PathBuf) -> Option<PathBuf> {
+    for path in [
+        resource_dir.join("node").join("bin").join("node"),
+        resource_dir.join("resources").join("node").join("bin").join("node"),
+    ] {
+        if path.exists() {
+            return Some(path);
+        }
+    }
+    None
+}
+
+fn packaged_calendar_helper(resource_dir: &PathBuf) -> Option<PathBuf> {
+    for path in [
+        resource_dir.join("calendar-helper").join("pet-calendar-helper"),
+        resource_dir.join("resources").join("calendar-helper").join("pet-calendar-helper"),
+    ] {
+        if path.exists() {
+            return Some(path);
+        }
+    }
+    None
+}
+
+fn system_node_binary() -> PathBuf {
     for candidate in ["/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node"] {
         let path = PathBuf::from(candidate);
         if path.exists() {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   AccountCurrentPayload,
   AccountProfile,
@@ -19,7 +19,6 @@ import type {
   PermissionRequestEvent,
   PermissionResolvePayload,
   PetActivityEvent,
-  PetEmotion,
   PetEmotionEvent,
   PetImageCutoutParams,
   PetImageCutoutPayload,
@@ -32,12 +31,19 @@ import type {
   SessionDeletePayload,
   SessionListPayload,
   SessionResumePayload,
-  SessionSummary,
   SkillSummary,
   SocialExchangePayload,
   SocialExchangeRecord,
   SurfaceEvent,
   SurfaceSpec,
+  TaskChangedEvent,
+  TaskCreateParams,
+  TaskCreatePayload,
+  TaskDeletePayload,
+  TaskListPayload,
+  TaskUpdateParams,
+  TaskUpdatePayload,
+  ScheduledTask,
   ToolAuditListPayload,
   ToolRunEvent,
   ToolRunRecord,
@@ -49,6 +55,8 @@ import type {
   VoiceTranscribePayload,
 } from "@pet/protocol";
 import { PetAgentClient } from "../services/PetAgentClient";
+import { usePetPresence } from "./usePetPresence";
+import { usePetSessionState } from "./usePetSessionState";
 
 export type ConnectionStatus = "connecting" | "ready" | "offline";
 
@@ -61,21 +69,28 @@ function sleep(ms: number) {
 export function usePetAgent() {
   const client = useMemo(() => new PetAgentClient(WS_URL), []);
   const [connection, setConnection] = useState<ConnectionStatus>("connecting");
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const sessionIdRef = useRef<string | null>(null);
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [draft, setDraft] = useState("");
-  const [activeRunIds, setActiveRunIds] = useState<string[]>([]);
-  const [petEmotion, setPetEmotion] = useState<PetEmotion>("idle");
-  const [petActivity, setPetActivity] = useState<Omit<PetActivityEvent, "sessionId">>({
-    activity: "sleeping",
-    active: false,
-    reason: "initial-rest",
-  });
-  const [surfaces, setSurfaces] = useState<SurfaceSpec[]>([]);
-  const [draftSurface, setDraftSurface] = useState<SurfaceSpec | null>(null);
-  const [activeSurfaceId, setActiveSurfaceId] = useState<string | null>(null);
+  const sessionState = usePetSessionState();
+  const {
+    sessionId,
+    setSessionId,
+    sessionIdRef,
+    sessions,
+    setSessions,
+    messages,
+    setMessages,
+    draft,
+    setDraft,
+    activeRunIds,
+    setActiveRunIds,
+    surfaces,
+    setSurfaces,
+    draftSurface,
+    setDraftSurface,
+    activeSurfaceId,
+    setActiveSurfaceId,
+    activeSurface,
+  } = sessionState;
+  const { petEmotion, petActivity, setPetEmotion, setPetActivity } = usePetPresence();
   const [memories, setMemories] = useState<Memory[]>([]);
   const [memoryProposal, setMemoryProposal] = useState<Memory | null>(null);
   const [skills, setSkills] = useState<SkillSummary[]>([]);
@@ -85,41 +100,18 @@ export function usePetAgent() {
   const [account, setAccount] = useState<AccountProfile | null>(null);
   const [friends, setFriends] = useState<FriendSummary[]>([]);
   const [latestExchange, setLatestExchange] = useState<SocialExchangeRecord | null>(null);
+  const [scheduledTasks, setScheduledTasks] = useState<ScheduledTask[]>([]);
   const [pendingPermissions, setPendingPermissions] = useState<PermissionRequest[]>([]);
   const [toolRuns, setToolRuns] = useState<ToolRunRecord[]>([]);
 
-  const activeSurface = useMemo(
-    () => surfaces.find((surface) => surface.id === activeSurfaceId) ?? surfaces[0],
-    [activeSurfaceId, surfaces],
-  );
-
-  useEffect(() => {
-    sessionIdRef.current = sessionId;
-  }, [sessionId]);
-
-  useEffect(() => {
-    if (petActivity.active) return;
-    const interval = window.setInterval(() => {
-      setPetActivity((current) =>
-        current.active
-          ? current
-          : {
-              activity: current.activity === "sleeping" ? "exercise" : "sleeping",
-              active: false,
-              reason: "idle-rotation",
-            },
-      );
-    }, 12_000);
-    return () => window.clearInterval(interval);
-  }, [petActivity.active]);
-
   const refreshSideData = useCallback(async () => {
-    const [memoryPayload, skillPayload, providerPayload, accountPayload, friendPayload, usagePayload, statsPayload, permissionPayload, toolAuditPayload] = await Promise.all([
+    const [memoryPayload, skillPayload, providerPayload, accountPayload, friendPayload, taskPayload, usagePayload, statsPayload, permissionPayload, toolAuditPayload] = await Promise.all([
       client.request<{ memories: Memory[] }>("memory.list"),
       client.request<{ skills: SkillSummary[] }>("skill.list"),
       client.request<{ providers: ProviderSummary[] }>("provider.list"),
       client.request<AccountCurrentPayload>("account.current"),
       client.request<FriendListPayload>("friend.list"),
+      client.request<TaskListPayload>("task.list").catch(() => ({ tasks: [] })),
       client.request<TokenUsageListPayload>("usage.list").catch(() => ({ summaries: [] })),
       client.request<RuntimeStatsPayload>("runtime.stats").catch(() => null),
       client.request<PermissionListPayload>("permission.list", { status: "pending", limit: 80 }).catch(() => ({ requests: [] })),
@@ -130,6 +122,7 @@ export function usePetAgent() {
     setProviders(providerPayload.providers);
     setAccount(accountPayload.account);
     setFriends(friendPayload.friends);
+    setScheduledTasks(taskPayload.tasks);
     setTokenUsage(usagePayload.summaries);
     setRuntimeStats(statsPayload);
     setPendingPermissions(permissionPayload.requests);
@@ -240,6 +233,17 @@ export function usePetAgent() {
         if (payload.sessionId !== sessionIdRef.current) break;
         setSurfaces((current) => [payload.surface, ...current.filter((surface) => surface.id !== payload.surface.id)]);
         setActiveSurfaceId(payload.surface.id);
+        break;
+      }
+      case "ui.surface.update": {
+        const payload = frame.payload as SurfaceEvent;
+        if (payload.sessionId !== sessionIdRef.current) break;
+        setSurfaces((current) => current.map((surface) => (surface.id === payload.surface.id ? payload.surface : surface)));
+        break;
+      }
+      case "task.changed": {
+        const payload = frame.payload as TaskChangedEvent;
+        setScheduledTasks(payload.tasks);
         break;
       }
       case "memory.proposal": {
@@ -447,6 +451,33 @@ export function usePetAgent() {
     setTokenUsage(usagePayload.summaries);
   }, [client]);
 
+  const createTask = useCallback(
+    async (params: TaskCreateParams) => {
+      const payload = await client.request<TaskCreatePayload>("task.create", params);
+      setScheduledTasks((current) => [payload.task, ...current.filter((task) => task.id !== payload.task.id)]);
+      return payload;
+    },
+    [client],
+  );
+
+  const updateTask = useCallback(
+    async (taskId: string, updates: Omit<TaskUpdateParams, "taskId">) => {
+      const payload = await client.request<TaskUpdatePayload>("task.update", { taskId, ...updates });
+      setScheduledTasks((current) => current.map((task) => (task.id === payload.task.id ? payload.task : task)));
+      return payload;
+    },
+    [client],
+  );
+
+  const deleteTask = useCallback(
+    async (taskId: string) => {
+      const payload = await client.request<TaskDeletePayload>("task.delete", { taskId });
+      setScheduledTasks((current) => current.filter((task) => task.id !== payload.taskId));
+      return payload;
+    },
+    [client],
+  );
+
   const resolvePermission = useCallback(
     async (permissionId: string, approved: boolean) => {
       const payload = await client.request<PermissionResolvePayload>("permission.resolve", { permissionId, approved });
@@ -502,6 +533,7 @@ export function usePetAgent() {
     account,
     friends,
     latestExchange,
+    scheduledTasks,
     pendingPermissions,
     toolRuns,
     sendText,
@@ -522,6 +554,9 @@ export function usePetAgent() {
     configureProvider,
     configureVoice,
     refreshTokenUsage,
+    createTask,
+    updateTask,
+    deleteTask,
     resolvePermission,
     saveMemoryText,
   };

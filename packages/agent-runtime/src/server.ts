@@ -47,6 +47,14 @@ import {
   type SkillSearchPayload,
   type SocialExchangeParams,
   type SocialExchangePayload,
+  type TaskChangedEvent,
+  type TaskCreateParams,
+  type TaskCreatePayload,
+  type TaskDeleteParams,
+  type TaskDeletePayload,
+  type TaskListPayload,
+  type TaskUpdateParams,
+  type TaskUpdatePayload,
   type SurfaceEvent,
   type SurfaceSpec,
   type ToolAuditListPayload,
@@ -75,6 +83,7 @@ import { ContextBuilder } from "./kernel/ContextBuilder";
 import { MemoryService } from "./memory/MemoryService";
 import { SkillService } from "./skills/SkillService";
 import { ToolRegistry } from "./tools/ToolRegistry";
+import { TaskScheduler } from "./tasks/TaskScheduler";
 import { logger } from "./logger";
 import { loadConfiguredMcpTools } from "./mcp/McpBridge";
 import {
@@ -95,6 +104,8 @@ const permissionToContinuation = new Map<string, string>();
 type ClientState = {
   seq: number;
   activeRuns: Map<string, AbortController>;
+  rateLimitStartedAt: number;
+  rateLimitCount: number;
 };
 
 type AgentRunOptions = {
@@ -113,9 +124,13 @@ const store = new PetStore();
 const memoryService = new MemoryService(store);
 const skillService = new SkillService(store);
 skillService.refresh();
-const toolRegistry = new ToolRegistry(store, memoryService, skillService);
+const toolRegistry = new ToolRegistry(store, memoryService, skillService, undefined, [], {
+  onTaskChanged: (action, task) => broadcastTaskChanged(action, task),
+  onSurfaceUpdated: (sessionId, surface) => broadcast("ui.surface.update", { sessionId, surface } satisfies SurfaceEvent),
+});
 void loadConfiguredMcpTools(toolRegistry);
 const contextBuilder = new ContextBuilder(store, memoryService, skillService, () => toolRegistry.catalog());
+const taskScheduler = new TaskScheduler(store, handleScheduledTaskDue);
 
 const methods: LocalRpcMethod[] = [
   "hello",
@@ -134,6 +149,10 @@ const methods: LocalRpcMethod[] = [
   "friend.list",
   "friend.add",
   "social.exchange",
+  "task.list",
+  "task.create",
+  "task.update",
+  "task.delete",
   "memory.list",
   "memory.query",
   "memory.propose",
@@ -164,6 +183,7 @@ const events: LocalEventName[] = [
   "tool.run",
   "pet.emotion",
   "pet.activity",
+  "task.changed",
   "ui.surface.create",
   "ui.surface.update",
   "ui.surface.delete",
@@ -172,7 +192,7 @@ const events: LocalEventName[] = [
 const wss = new WebSocketServer({ host: HOST, port: PORT });
 
 wss.on("connection", (socket) => {
-  const state: ClientState = { seq: 0, activeRuns: new Map() };
+  const state: ClientState = { seq: 0, activeRuns: new Map(), rateLimitStartedAt: Date.now(), rateLimitCount: 0 };
   clients.set(socket, state);
 
   socket.on("message", (raw) => {
@@ -187,6 +207,7 @@ wss.on("connection", (socket) => {
 
 wss.on("listening", () => {
   logger.info("agentd.listening", { host: HOST, port: PORT });
+  taskScheduler.start();
 });
 
 async function handleRawFrame(socket: WebSocket, state: ClientState, raw: string) {
@@ -210,6 +231,11 @@ async function handleRawFrame(socket: WebSocket, state: ClientState, raw: string
       ok: false,
       error: { code: "BAD_FRAME", message: "Only request frames are accepted by pet-agentd." },
     });
+    return;
+  }
+
+  if (!allowRequest(state)) {
+    sendError(socket, frame.id, "RATE_LIMITED", "Too many requests. Please slow down and retry shortly.");
     return;
   }
 
@@ -482,6 +508,70 @@ async function handleRequest(socket: WebSocket, state: ClientState, request: Rpc
         .join(" ");
       const exchange = store.recordSocialExchange(friend.id, summary, sharedSkills, shareableMemories.length);
       sendOk(socket, request.id, { exchange } satisfies SocialExchangePayload);
+      return;
+    }
+
+    case "task.list": {
+      sendOk(socket, request.id, { tasks: store.listTasks() } satisfies TaskListPayload);
+      return;
+    }
+
+    case "task.create": {
+      const params = request.params as TaskCreateParams | undefined;
+      if (!params?.title?.trim()) {
+        sendError(socket, request.id, "BAD_REQUEST", "task.create requires title.");
+        return;
+      }
+      const task = store.createTask({
+        title: params.title,
+        dueAt: params.dueAt,
+        repeat: params.repeat,
+        channel: params.channel,
+        note: params.note ?? undefined,
+        enabled: params.enabled,
+      });
+      broadcastTaskChanged("created", task);
+      sendOk(socket, request.id, { task } satisfies TaskCreatePayload);
+      return;
+    }
+
+    case "task.update": {
+      const params = request.params as TaskUpdateParams | undefined;
+      if (!params?.taskId) {
+        sendError(socket, request.id, "BAD_REQUEST", "task.update requires taskId.");
+        return;
+      }
+      const updates: Parameters<typeof store.updateTask>[1] = {};
+      if (params.title !== undefined) updates.title = params.title;
+      if (params.dueAt !== undefined) updates.dueAt = params.dueAt;
+      if (params.repeat !== undefined) updates.repeat = params.repeat;
+      if (params.channel !== undefined) updates.channel = params.channel;
+      if ("note" in params) updates.note = params.note ?? undefined;
+      if (params.enabled !== undefined) updates.enabled = params.enabled;
+      if ("completedAt" in params) updates.completedAt = params.completedAt ?? undefined;
+      const task = store.updateTask(params.taskId, updates);
+      if (!task) {
+        sendError(socket, request.id, "NOT_FOUND", "Task does not exist.");
+        return;
+      }
+      broadcastTaskChanged("updated", task);
+      sendOk(socket, request.id, { task } satisfies TaskUpdatePayload);
+      return;
+    }
+
+    case "task.delete": {
+      const params = request.params as TaskDeleteParams | undefined;
+      if (!params?.taskId) {
+        sendError(socket, request.id, "BAD_REQUEST", "task.delete requires taskId.");
+        return;
+      }
+      const deleted = store.deleteTask(params.taskId);
+      if (!deleted) {
+        sendError(socket, request.id, "NOT_FOUND", "Task does not exist.");
+        return;
+      }
+      broadcastTaskChanged("deleted", undefined, params.taskId);
+      sendOk(socket, request.id, { taskId: params.taskId, deleted: true } satisfies TaskDeletePayload);
       return;
     }
 
@@ -929,6 +1019,30 @@ async function finishDirectAgent(
   emit(socket, state, "agent.lifecycle", { sessionId: session.id, runId, phase: "end" } satisfies AgentLifecycleEvent);
 }
 
+async function handleScheduledTaskDue(event: { task: TaskChangedEvent["task"]; nextTask: TaskChangedEvent["task"] }) {
+  if (!event.task || !event.nextTask) return;
+  const session = ensureSession();
+  const content = scheduledTaskMessage(event.task);
+  const message: ChatMessage = {
+    id: `msg_${crypto.randomUUID()}`,
+    role: "assistant",
+    content,
+    createdAt: new Date().toISOString(),
+    runId: `run_task_${crypto.randomUUID()}`,
+  };
+  store.saveMessage(session.id, message);
+  broadcast("chat.message", { sessionId: session.id, message } satisfies ChatMessageEvent);
+  broadcastTaskChanged("triggered", event.nextTask);
+  broadcast("pet.emotion", { sessionId: session.id, emotion: "needs_attention", intensity: 0.8, reason: "task-due" } satisfies PetEmotionEvent);
+  broadcast("pet.activity", { sessionId: session.id, activity: "research", active: false, reason: "task-due" } satisfies PetActivityEvent);
+}
+
+function scheduledTaskMessage(task: NonNullable<TaskChangedEvent["task"]>) {
+  const prefix = task.channel === "voice" ? "语音提醒" : task.channel === "chat" ? "聊天提醒" : "宠物提醒";
+  const note = task.note ? `\n${task.note}` : "";
+  return `${prefix}：${task.title}${note}`;
+}
+
 function buildSurfaceActionAgentText(text: string, surfaceAction: NonNullable<ChatSendParams["surfaceAction"]>, surface: SurfaceSpec | null) {
   const action = surface?.actions?.find((candidate) => candidate.id === surfaceAction.actionId);
   const actionLabel = action?.label ?? text;
@@ -1074,6 +1188,16 @@ function sendResponse(socket: WebSocket, response: RpcResponse) {
   socket.send(JSON.stringify(response));
 }
 
+function allowRequest(state: ClientState) {
+  const now = Date.now();
+  if (now - state.rateLimitStartedAt > 30_000) {
+    state.rateLimitStartedAt = now;
+    state.rateLimitCount = 0;
+  }
+  state.rateLimitCount += 1;
+  return state.rateLimitCount <= 120;
+}
+
 function serializeServerError(error: unknown) {
   if (error instanceof Error) {
     return {
@@ -1102,6 +1226,15 @@ function broadcast(event: LocalEventName, payload: unknown) {
     if (client.readyState !== 1) continue;
     sendEvent(client, state, event, payload);
   }
+}
+
+function broadcastTaskChanged(action: TaskChangedEvent["action"], task?: TaskChangedEvent["task"], taskId?: string) {
+  broadcast("task.changed", {
+    action,
+    task,
+    taskId: taskId ?? task?.id,
+    tasks: store.listTasks(),
+  } satisfies TaskChangedEvent);
 }
 
 function sendEvent(socket: WebSocket, state: ClientState, event: LocalEventName, payload: unknown) {
