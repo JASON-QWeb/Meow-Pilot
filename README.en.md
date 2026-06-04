@@ -14,11 +14,10 @@
   <img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white" />
   <img src="https://img.shields.io/badge/Node.js-339933?style=flat-square&logo=node.js&logoColor=white" />
   <img src="https://img.shields.io/badge/pnpm-F69220?style=flat-square&logo=pnpm&logoColor=white" />
-  <img src="https://img.shields.io/badge/local--first-private-green?style=flat-square" />
 </p>
 
 <p align="center">
-  English · 中文
+  English · <a href="README.md">中文</a>
 </p>
 
 ---
@@ -76,6 +75,7 @@
 | Scenario | Experience |
 |:--|:--|
 | **Quick chat** | Start from the desktop right-click menu, or open the multi-session workspace to continue chatting |
+| **Task delegation** | Let the pet call tools, handle files, organize information, or complete workflows |
 | **Play media** | Ask the pet to play music or videos |
 | **Life cards** | Weather, plans, and reminders become small visual cards |
 | **Long-term memory** | Preferences, personas, and daily details can keep accumulating locally |

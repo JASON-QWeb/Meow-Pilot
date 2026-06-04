@@ -14,11 +14,10 @@
   <img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white" />
   <img src="https://img.shields.io/badge/Node.js-339933?style=flat-square&logo=node.js&logoColor=white" />
   <img src="https://img.shields.io/badge/pnpm-F69220?style=flat-square&logo=pnpm&logoColor=white" />
-  <img src="https://img.shields.io/badge/local--first-private-green?style=flat-square" />
 </p>
 
 <p align="center">
-  English · 中文
+  <a href="README.en.md">English</a> · 中文
 </p>
 
 ---
@@ -76,6 +75,7 @@
 | 场景 | 体验 |
 |:--|:--|
 | **随手聊天** | 从桌面右键开始问，也可以展开多会话工作台继续聊 |
+| **任务代办** | 根据指令调用工具、处理文件、整理信息或完成工作流 |
 | **播放媒体** | 让宠物播放音乐或视频 |
 | **生活卡片** | 天气、计划、提醒直接变成可看的小卡片 |
 | **长期记忆** | 偏好、人设、日常事项可持续沉淀在本地 |
