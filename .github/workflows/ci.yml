@@ -1,4 +1,4 @@
-name: CI
+name: Test
 
 on:
   push:
@@ -8,8 +8,8 @@ on:
   pull_request:
 
 jobs:
-  build-test:
-    name: Build and test
+  test:
+    name: Typecheck and test
     runs-on: macos-14
     steps:
       - name: Checkout
@@ -34,11 +34,3 @@ jobs:
 
       - name: Test
         run: pnpm test
-
-      - name: Build
-        run: pnpm build
-
-      - name: Tauri build
-        env:
-          APPLE_SIGNING_IDENTITY: "-"
-        run: pnpm --filter @pet/desktop tauri:build

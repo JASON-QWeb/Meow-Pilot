@@ -66,15 +66,6 @@ jobs:
           echo "$APPLE_API_KEY_P8_BASE64" | base64 --decode > "private_keys/AuthKey_${APPLE_API_KEY}.p8"
           echo "APPLE_API_KEY_PATH=$PWD/private_keys/AuthKey_${APPLE_API_KEY}.p8" >> "$GITHUB_ENV"
 
-      - name: Typecheck
-        run: pnpm typecheck
-
-      - name: Test
-        run: pnpm test
-
-      - name: Build
-        run: pnpm build
-
       - name: Build signed and notarized DMG
         run: pnpm --filter @pet/desktop tauri:build:dmg
 
