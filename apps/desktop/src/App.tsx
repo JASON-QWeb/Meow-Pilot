@@ -433,6 +433,8 @@ export function App() {
           onTranscribe={agent.transcribeVoice}
           onSpeak={agent.speakText}
           onSurfaceAction={agent.handleSurfaceAction}
+          pendingPermissions={agent.pendingPermissions}
+          onResolvePermission={agent.resolvePermission}
         />
       </section>
     );

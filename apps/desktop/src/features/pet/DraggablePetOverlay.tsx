@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent } from "react";
 import { LogicalSize, PhysicalPosition } from "@tauri-apps/api/dpi";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Gauge, MessageCircle, Music, Send, Video, Volume2, X } from "lucide-react";
+import { currentMonitor, getCurrentWindow, type Monitor } from "@tauri-apps/api/window";
+import { Activity, Gauge, MessageCircle, Music, Send, Video, Volume2, X } from "lucide-react";
 import type { ChatMessage, PetActivity, PetEmotion, TokenUsageSummary } from "@pet/protocol";
 import { PetAvatar } from "./PetAvatar";
+import type { PetdexSpriteStateId } from "./petdexCatalog";
+import { advanceRoamingState, createRoamingState, type RoamingPoint, type RoamingRect, type RoamingSize, type RoamingState } from "./petRoaming";
 import type { PetPosition, PetProfile, PetRigAsset } from "./petProfile";
 
 type DraggablePetOverlayProps = {
@@ -36,6 +38,11 @@ type DragState = {
 
 type OverlayMode = "menu" | "usage" | "chat" | "music" | "video" | null;
 type LocalMedia = { url: string; name: string; mimeType: string; objectUrl?: boolean };
+type RoamingEnvironment = {
+  position: RoamingPoint;
+  petSize: RoamingSize;
+  workArea: RoamingRect;
+};
 
 const activityCopy: Record<PetActivity, string> = {
   coding: "编码中",
@@ -64,18 +71,30 @@ export function DraggablePetOverlay({
   const dragRef = useRef<DragState | null>(null);
   const frameRef = useRef<number | null>(null);
   const pendingWindowPositionRef = useRef<PhysicalPosition | null>(null);
+  const positionRef = useRef(position);
   const musicInputRef = useRef<HTMLInputElement | null>(null);
   const videoInputRef = useRef<HTMLInputElement | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [dragPose, setDragPose] = useState<PetdexSpriteStateId | null>(null);
+  const [roamingEnabled, setRoamingEnabled] = useState(false);
+  const [roamingPose, setRoamingPose] = useState<PetdexSpriteStateId | null>(null);
   const [overlayMode, setOverlayMode] = useState<OverlayMode>(null);
   const [quickChatDraft, setQuickChatDraft] = useState("");
   const [localTrack, setLocalTrack] = useState<LocalMedia | null>(null);
   const [localVideo, setLocalVideo] = useState<LocalMedia | null>(null);
   const overlayOpen = overlayMode !== null;
+  const roamingActive = roamingEnabled && !dragging && !overlayOpen;
+  const motionPose = dragPose ?? roamingPose;
+  const effectiveActivity: PetActivity = dragging || roamingActive ? "exercise" : activity;
+  const visuallyActive = active || dragging || roamingActive;
   const tokenRows = buildTokenProgressRows(tokenUsage);
   const recentMessages = messages.filter((message) => message.role !== "system").slice(-4);
   const activeTrack = localTrack;
   const activeVideo = localVideo;
+
+  useEffect(() => {
+    positionRef.current = position;
+  }, [position]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -97,6 +116,66 @@ export function DraggablePetOverlay({
     if (!dragWindow) return;
     void resizePetWindow(overlayOpen).catch(() => undefined);
   }, [dragWindow, overlayOpen]);
+
+  useEffect(() => {
+    if (!roamingActive) {
+      setRoamingPose(null);
+      return;
+    }
+
+    let disposed = false;
+    let roamingState: RoamingState | null = null;
+    let environment: RoamingEnvironment | null = null;
+    let interval: number | null = null;
+
+    void initializeRoaming().catch(() => {
+      if (disposed) return;
+      setRoamingEnabled(false);
+      setRoamingPose(null);
+    });
+
+    return () => {
+      disposed = true;
+      if (interval !== null) window.clearInterval(interval);
+      setRoamingPose(null);
+    };
+
+    async function initializeRoaming() {
+      if (dragWindow) {
+        await resizePetWindow(false).catch(() => undefined);
+      }
+
+      environment = await readRoamingEnvironment();
+      if (disposed) return;
+
+      roamingState = createRoamingState({
+        position: environment.position,
+        petSize: environment.petSize,
+        workArea: environment.workArea,
+        nowMs: performance.now(),
+      });
+      tickRoaming();
+      interval = window.setInterval(tickRoaming, 34);
+    }
+
+    function tickRoaming() {
+      if (!roamingState || !environment || disposed) return;
+
+      const frame = advanceRoamingState(roamingState, {
+        petSize: environment.petSize,
+        workArea: environment.workArea,
+        nowMs: performance.now(),
+      });
+      roamingState = frame.state;
+      setRoamingPose(frame.pose);
+
+      if (dragWindow) {
+        scheduleWindowMove(frame.position.x, frame.position.y);
+      } else {
+        onPositionChange({ x: frame.position.x, y: frame.position.y });
+      }
+    }
+  }, [dragWindow, roamingActive, onPositionChange]);
 
   useEffect(
     () => () => {
@@ -149,6 +228,7 @@ export function DraggablePetOverlay({
       moved: false,
     };
     setDragging(true);
+    setDragPose("running");
 
     if (dragWindow) {
       const currentWindow = getCurrentWindow();
@@ -176,6 +256,7 @@ export function DraggablePetOverlay({
     const deltaScreenY = screenY - drag.startScreenY;
     if (Math.abs(deltaScreenX) + Math.abs(deltaScreenY) > 5 || Math.abs(deltaX) + Math.abs(deltaY) > 5) {
       drag.moved = true;
+      setDragPose((current) => poseForDrag(deltaScreenX || deltaX, deltaScreenY || deltaY, current));
     }
 
     if (dragWindow) {
@@ -192,6 +273,7 @@ export function DraggablePetOverlay({
     if (!drag) return;
     dragRef.current = null;
     setDragging(false);
+    setDragPose(null);
 
     if (!drag.moved) {
       onOpenWork();
@@ -252,6 +334,15 @@ export function DraggablePetOverlay({
     setOverlayMode(null);
   }
 
+  function toggleRoaming() {
+    setRoamingEnabled((current) => {
+      const next = !current;
+      if (!next) setRoamingPose(null);
+      return next;
+    });
+    setOverlayMode(null);
+  }
+
   function renderOverlayPanel() {
     if (overlayMode === "menu") {
       return (
@@ -262,6 +353,10 @@ export function DraggablePetOverlay({
             </button>
           </header>
           <div className="petContextActions">
+            <button type="button" aria-pressed={roamingEnabled} onClick={toggleRoaming}>
+              <Activity size={17} />
+              <span>{roamingEnabled ? "停止活动" : "开始活动"}</span>
+            </button>
             <button type="button" onClick={() => setOverlayMode("usage")}>
               <Gauge size={17} />
               <span>模型用量</span>
@@ -478,9 +573,34 @@ export function DraggablePetOverlay({
     await currentWindow.setResizable(false).catch(() => undefined);
   }
 
+  async function readRoamingEnvironment(): Promise<RoamingEnvironment> {
+    if (!dragWindow) {
+      return {
+        position: positionRef.current,
+        petSize: { width: 150, height: 150 },
+        workArea: { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight },
+      };
+    }
+
+    const currentWindow = getCurrentWindow();
+    const [windowPosition, windowSize, monitor] = await Promise.all([
+      currentWindow.outerPosition(),
+      currentWindow.outerSize(),
+      currentMonitor().catch(() => null),
+    ]);
+
+    return {
+      position: { x: windowPosition.x, y: windowPosition.y },
+      petSize: { width: windowSize.width, height: windowSize.height },
+      workArea: monitor ? monitorWorkAreaRect(monitor) : fallbackWorkArea(windowPosition, windowSize),
+    };
+  }
+
   return (
     <div
-      className={`petOnlyLayer activity-${activity} ${active ? "active" : "resting"} ${dragging ? "dragging" : ""} ${overlayOpen ? "overlayOpen" : ""} mode-${overlayMode ?? "idle"}`}
+      className={`petOnlyLayer activity-${effectiveActivity} ${visuallyActive ? "active" : "resting"} ${dragging ? "dragging" : ""} ${
+        roamingEnabled ? "roamingEnabled" : ""
+      } ${motionPose ? `pose-${motionPose}` : ""} ${overlayOpen ? "overlayOpen" : ""} mode-${overlayMode ?? "idle"}`}
       style={dragWindow ? undefined : { transform: `translate3d(${position.x}px, ${position.y}px, 0)` }}
       onMouseDown={handleMouseDown}
       onContextMenu={handleContextMenu}
@@ -491,10 +611,11 @@ export function DraggablePetOverlay({
         emotion={emotion}
         size="overlay"
         draggable
+        spriteStateOverride={motionPose}
         onDoubleClick={handleDoubleClick}
       />
       {renderOverlayPanel()}
-      <span className="visuallyHidden">{activityCopy[activity]}</span>
+      <span className="visuallyHidden">{activityCopy[effectiveActivity]}</span>
     </div>
   );
 }
@@ -554,4 +675,34 @@ function prepareVideoPreview(video: HTMLVideoElement) {
     video.currentTime = 30;
   }
   void video.play().catch(() => undefined);
+}
+
+function poseForDrag(deltaX: number, deltaY: number, current: PetdexSpriteStateId | null): PetdexSpriteStateId {
+  if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 3) {
+    return deltaX > 0 ? "running-right" : "running-left";
+  }
+
+  if (Math.abs(deltaY) > 3) return "running";
+  return current ?? "running";
+}
+
+function monitorWorkAreaRect(monitor: Monitor): RoamingRect {
+  return {
+    x: monitor.workArea.position.x,
+    y: monitor.workArea.position.y,
+    width: monitor.workArea.size.width,
+    height: monitor.workArea.size.height,
+  };
+}
+
+function fallbackWorkArea(position: RoamingPoint, size: RoamingSize): RoamingRect {
+  const width = Math.max(window.screen?.availWidth ?? window.innerWidth, size.width + 360);
+  const height = Math.max(window.screen?.availHeight ?? window.innerHeight, size.height + 260);
+
+  return {
+    x: position.x - Math.max(0, (width - size.width) / 2),
+    y: position.y - Math.max(0, (height - size.height) / 2),
+    width,
+    height,
+  };
 }

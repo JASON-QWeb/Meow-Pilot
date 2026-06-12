@@ -1,7 +1,17 @@
-import { ExternalLink, Mic, Music, Plus, Send, Square, Trash2, Video, Volume2 } from "lucide-react";
+import { Check, ExternalLink, Mic, Music, Plus, Send, Shield, Square, Trash2, Video, Volume2, X } from "lucide-react";
 import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
-import type { ChatMessage, ChatSendPayload, MediaPlayerNode, SessionSummary, SurfaceSpec, UIAction, VoiceSpeakPayload, VoiceTranscribePayload } from "@pet/protocol";
+import type {
+  ChatMessage,
+  ChatSendPayload,
+  MediaPlayerNode,
+  PermissionRequest,
+  SessionSummary,
+  SurfaceSpec,
+  UIAction,
+  VoiceSpeakPayload,
+  VoiceTranscribePayload,
+} from "@pet/protocol";
 import { SurfaceRenderer, type SurfaceActionHandler } from "../surfaces/SurfaceRenderer";
 import { useVirtualWindow } from "../../hooks/useVirtualWindow";
 
@@ -20,6 +30,8 @@ type ChatPanelProps = {
   onTranscribe: (audioData: string) => Promise<VoiceTranscribePayload>;
   onSpeak: (text: string) => Promise<VoiceSpeakPayload>;
   onSurfaceAction: SurfaceActionHandler;
+  pendingPermissions?: PermissionRequest[];
+  onResolvePermission?: (permissionId: string, approved: boolean) => unknown | Promise<unknown>;
   isAgentRunning?: boolean;
 };
 
@@ -40,6 +52,8 @@ export function ChatPanel({
   onTranscribe,
   onSpeak,
   onSurfaceAction,
+  pendingPermissions = [],
+  onResolvePermission,
   isAgentRunning = false,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
@@ -120,32 +134,35 @@ export function ChatPanel({
           <strong>{activeSession?.title ?? "当前会话"}</strong>
           <span>{activeSession ? `${activeSession.messageCount} 条消息` : "准备中"}</span>
         </div>
-      <div className={`messageList ${messageWindow.enabled ? "virtualized" : ""}`} ref={messageWindow.containerRef} onScroll={messageWindow.onScroll}>
-        {messageWindow.enabled ? (
-          <div className="virtualListSpacer" style={{ height: messageWindow.totalHeight }}>
-            <div className="messageVirtualWindow" style={{ transform: `translateY(${messageWindow.offsetY}px)` }}>
-              {messageWindow.items.map(({ item: message }) => renderMessage(message))}
-            </div>
-          </div>
-        ) : (
-          messageWindow.items.map(({ item: message }) => renderMessage(message))
-        )}
-        {draft || draftSurface ? (
-          <article className={`message assistant streaming ${draftSurface ? "hasSurface" : ""}`}>
-            <span>{petName}</span>
-            {draft ? <MarkdownText text={draft} /> : null}
-            {draftSurface ? <InlineSurface surface={draftSurface} onAction={onSurfaceAction} /> : null}
-          </article>
+        {pendingPermissions[0] ? (
+          <PermissionApprovalOverlay request={pendingPermissions[0]} count={pendingPermissions.length} onResolve={onResolvePermission} />
         ) : null}
-        {isAgentRunning && !draft && !draftSurface ? (
-          <article className="message assistant streaming waiting">
-            <span>{petName}</span>
-            <div className="messageLoading">
-              <i />
-              <strong>正在整理</strong>
+        <div className={`messageList ${messageWindow.enabled ? "virtualized" : ""}`} ref={messageWindow.containerRef} onScroll={messageWindow.onScroll}>
+          {messageWindow.enabled ? (
+            <div className="virtualListSpacer" style={{ height: messageWindow.totalHeight }}>
+              <div className="messageVirtualWindow" style={{ transform: `translateY(${messageWindow.offsetY}px)` }}>
+                {messageWindow.items.map(({ item: message }) => renderMessage(message))}
+              </div>
             </div>
-          </article>
-        ) : null}
+          ) : (
+            messageWindow.items.map(({ item: message }) => renderMessage(message))
+          )}
+          {draft || draftSurface ? (
+            <article className={`message assistant streaming ${draftSurface ? "hasSurface" : ""}`}>
+              <span>{petName}</span>
+              {draft ? <MarkdownText text={draft} /> : null}
+              {draftSurface ? <InlineSurface surface={draftSurface} onAction={onSurfaceAction} /> : null}
+            </article>
+          ) : null}
+          {isAgentRunning && !draft && !draftSurface ? (
+            <article className="message assistant streaming waiting">
+              <span>{petName}</span>
+              <div className="messageLoading">
+                <i />
+                <strong>正在整理</strong>
+              </div>
+            </article>
+          ) : null}
         </div>
 
         <form
@@ -387,6 +404,66 @@ export function ChatPanel({
     if ("speechSynthesis" in window) {
       window.speechSynthesis.cancel();
     }
+  }
+}
+
+function PermissionApprovalOverlay({
+  request,
+  count,
+  onResolve,
+}: {
+  request: PermissionRequest;
+  count: number;
+  onResolve?: (permissionId: string, approved: boolean) => unknown | Promise<unknown>;
+}) {
+  return (
+    <section className="chatPermissionBackdrop" aria-label="待审批权限">
+      <article className={`chatPermissionDialog ${request.permissionLevel}`} role="dialog" aria-modal="false" aria-labelledby="chat-permission-title">
+        <header>
+          <span className="chatPermissionIcon">
+            <Shield size={18} />
+          </span>
+          <div>
+            <small>{count > 1 ? `${count} 项待审批` : "待审批"}</small>
+            <h3 id="chat-permission-title">{request.title}</h3>
+          </div>
+          <strong>{request.toolName}</strong>
+        </header>
+        <p>{request.description}</p>
+        <dl>
+          <div>
+            <dt>风险</dt>
+            <dd>{request.risk}</dd>
+          </div>
+          {request.cwd ? (
+            <div>
+              <dt>CWD</dt>
+              <dd>{request.cwd}</dd>
+            </div>
+          ) : null}
+        </dl>
+        {request.command ? <pre aria-label="待执行命令">{request.command}</pre> : null}
+        {request.diff ? <pre aria-label="文件变更 diff">{request.diff}</pre> : <pre aria-label="工具输入">{formatPermissionInput(request.input)}</pre>}
+        <div className="chatPermissionActions">
+          <button type="button" className="approveButton" disabled={!onResolve} onClick={() => void onResolve?.(request.id, true)}>
+            <Check size={15} />
+            批准
+          </button>
+          <button type="button" className="denyButton" disabled={!onResolve} onClick={() => void onResolve?.(request.id, false)}>
+            <X size={15} />
+            拒绝
+          </button>
+        </div>
+      </article>
+    </section>
+  );
+}
+
+function formatPermissionInput(input: Record<string, unknown>) {
+  try {
+    return JSON.stringify(input, null, 2);
+  } catch {
+    return String(input);
   }
 }
 

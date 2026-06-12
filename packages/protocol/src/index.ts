@@ -273,6 +273,7 @@ export type SocialExchangeRecord = {
 export type SocialExchangeParams = {
   friendId: string;
   note?: string;
+  skillNames?: string[];
 };
 
 export type SocialExchangePayload = {

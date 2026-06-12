@@ -439,11 +439,12 @@ export function usePetAgent() {
   );
 
   const exchangeWithFriend = useCallback(
-    async (friendId: string) => {
-      const payload = await client.request<SocialExchangePayload>("social.exchange", { friendId });
+    async (friendId: string, skillNames?: string[], note?: string) => {
+      const payload = await client.request<SocialExchangePayload>("social.exchange", { friendId, skillNames, note });
       setLatestExchange(payload.exchange);
       const friendPayload = await client.request<FriendListPayload>("friend.list");
       setFriends(friendPayload.friends);
+      return payload.exchange;
     },
     [client],
   );

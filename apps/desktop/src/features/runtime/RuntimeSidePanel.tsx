@@ -37,7 +37,7 @@ type RuntimeSidePanelProps = {
   onResolvePermission?: (permissionId: string, approved: boolean) => unknown | Promise<unknown>;
   onSignIn: (displayName: string) => void | Promise<void>;
   onAddFriend: (handle: string) => void | Promise<void>;
-  onExchangeFriend: (friendId: string) => void | Promise<void>;
+  onExchangeFriend: (friendId: string, skillNames?: string[], note?: string) => SocialExchangeRecord | void | Promise<SocialExchangeRecord | void>;
   onConfigureProvider: (params: ProviderConfigureParams) => void | Promise<void>;
   onConfigureVoice: (params: VoiceConfigureParams) => void | Promise<void>;
   onSaveMemory: (content: string, id?: string) => void | Promise<void>;
@@ -60,9 +60,11 @@ type SkillCatalogItem = SkillSummary & {
   maturity: "active" | "available" | "reference";
 };
 
-type PeerSkillOffer = SkillSummary & {
+type ExchangeSkillOffer = SkillSummary & {
   pitch: string;
 };
+
+type ExchangeModalMode = "record" | "skill";
 
 type MemorySectionId = "petPersona" | "ownerPreference" | "longMemory";
 
@@ -125,8 +127,12 @@ export function RuntimeSidePanel({
   const [friendNotice, setFriendNotice] = useState("");
   const [friendMessageDrafts, setFriendMessageDrafts] = useState<Record<string, string>>({});
   const [activeExchangeFriendId, setActiveExchangeFriendId] = useState<string | null>(null);
+  const [activeExchangeMode, setActiveExchangeMode] = useState<ExchangeModalMode | null>(null);
+  const [activeExchangeRecord, setActiveExchangeRecord] = useState<SocialExchangeRecord | null>(null);
+  const [exchangeRecordError, setExchangeRecordError] = useState("");
+  const [isRecordingExchange, setIsRecordingExchange] = useState(false);
   const [exchangePulseSkillName, setExchangePulseSkillName] = useState<string | null>(null);
-  const [installedFriendSkills, setInstalledFriendSkills] = usePersistentState<SkillSummary[]>("pet.installed.friend.skills", defaultInstalledFriendSkills);
+  const [installedFriendSkills] = usePersistentState<SkillSummary[]>("pet.installed.friend.skills", defaultInstalledFriendSkills);
   const [providerId, setProviderId] = useState<AiProviderId>("deepseek");
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("deepseek-chat");
@@ -178,9 +184,16 @@ export function RuntimeSidePanel({
     () => friendCards.find((friend) => friend.id === activeExchangeFriendId) ?? null,
     [activeExchangeFriendId, friendCards],
   );
-  const installedSkillNames = useMemo(
-    () => new Set([...skills, ...installedFriendSkills].map((skill) => skill.name)),
-    [installedFriendSkills, skills],
+  const shareableSkillOffers = useMemo<ExchangeSkillOffer[]>(
+    () =>
+      skills
+        .filter((skill) => skill.enabled && !skill.quarantined)
+        .slice(0, 9)
+        .map((skill) => ({
+          ...skill,
+          pitch: skill.permissions.length ? `权限：${skill.permissions.slice(0, 2).join("、")}` : "无需额外权限",
+        })),
+    [skills],
   );
   const localPetTemplate = getPetdexTemplate(petProfile?.appearance === "petdex-sprite" ? petProfile.petdexSlug : undefined);
   const localPetName = petProfile?.name?.trim() || "我的宠物";
@@ -194,7 +207,7 @@ export function RuntimeSidePanel({
   useEffect(() => {
     if (!activeExchangeFriendId) return;
     if (!friendCards.some((friend) => friend.id === activeExchangeFriendId)) {
-      setActiveExchangeFriendId(null);
+      closeExchangeModal();
     }
   }, [activeExchangeFriendId, friendCards]);
 
@@ -483,13 +496,24 @@ export function RuntimeSidePanel({
               </form>
               <div className="friendActions">
                 <button
+                  className="friendActionSecondary"
                   type="button"
-                  onClick={() => void exchangeSkill(friend)}
-                  aria-expanded={activeExchangeFriendId === friend.id}
-                  aria-label={`和 ${friend.petName} 记录一次本地交换`}
+                  onClick={() => void recordExchange(friend)}
+                  aria-expanded={activeExchangeFriendId === friend.id && activeExchangeMode === "record"}
+                  aria-label={`查看并记录和 ${friend.petName} 的本地交换`}
                 >
                   <RefreshCw size={15} />
                   记录交换
+                </button>
+                <button
+                  className="friendActionPrimary"
+                  type="button"
+                  onClick={() => openSkillExchange(friend)}
+                  aria-expanded={activeExchangeFriendId === friend.id && activeExchangeMode === "skill"}
+                  aria-label={`和 ${friend.petName} 交换 Skill`}
+                >
+                  <PackagePlus size={15} />
+                  交换 Skill
                 </button>
               </div>
             </article>
@@ -503,7 +527,7 @@ export function RuntimeSidePanel({
           </article>
         ) : null}
 
-        {activeExchangeFriend ? (
+        {activeExchangeFriend && activeExchangeMode ? (
           <section className="skillExchangeBackdrop" role="presentation" onMouseDown={(event) => {
             if (event.target === event.currentTarget) closeExchangeModal();
           }}>
@@ -515,8 +539,8 @@ export function RuntimeSidePanel({
             >
               <header className="exchangeModalHeader">
                 <div>
-                  <p className="eyebrow">Skill exchange</p>
-                  <h3>{activeExchangeFriend.petName} 的交换记录</h3>
+                  <p className="eyebrow">{activeExchangeMode === "skill" ? "Skill exchange" : "Exchange record"}</p>
+                  <h3>{activeExchangeMode === "skill" ? `和 ${activeExchangeFriend.petName} 交换 Skill` : `${activeExchangeFriend.petName} 的交换记录`}</h3>
                   <span>{activeExchangeFriend.displayName} · {activeExchangeFriend.handle}</span>
                 </div>
                 <button className="exchangeCloseButton" type="button" onClick={closeExchangeModal} aria-label="关闭 Skill 交换弹窗">
@@ -540,9 +564,9 @@ export function RuntimeSidePanel({
 
                 <div className="exchangeTransferRail" aria-live="polite">
                   <span className="exchangePacket">
-                    <PackagePlus size={17} />
+                    {activeExchangeMode === "skill" ? <PackagePlus size={17} /> : <FileText size={17} />}
                   </span>
-                  <strong>{exchangePulseSkillName ?? "等待真实好友 Skill 数据"}</strong>
+                  <strong>{exchangeStatusLabel(activeExchangeMode, exchangePulseSkillName, isRecordingExchange, activeExchangeRecord)}</strong>
                 </div>
 
                 <article className="exchangePetNode local">
@@ -559,30 +583,96 @@ export function RuntimeSidePanel({
                 </article>
               </section>
 
-              <section className="exchangeSkillShelf modalShelf" aria-label="可安装 Skill">
-                {[].map((skill: PeerSkillOffer) => {
-                  const installed = installedSkillNames.has(skill.name);
-                  const transferring = exchangePulseSkillName === skill.name;
-                  return (
-                    <button
-                      className={`exchangeSkillCard ${installed ? "installed" : ""} ${transferring ? "transferring" : ""}`}
-                      type="button"
-                      key={`${activeExchangeFriend.id}-${skill.name}`}
-                      disabled={installed || transferring}
-                      onClick={() => void installFriendSkill(activeExchangeFriend, skill)}
-                    >
-                      <span className="exchangeSkillCategory">{categoryLabels[skill.category] ?? skill.category}</span>
-                      <strong>{skill.name}</strong>
-                      <p>{skill.description}</p>
-                      <small>{skill.pitch}</small>
-                      <span className="exchangeInstallBadge">
-                        {transferring ? <RefreshCw size={14} /> : installed ? <Check size={14} /> : <PackagePlus size={14} />}
-                        {transferring ? "交换中" : installed ? "已在库中" : "选择交换"}
-                      </span>
-                    </button>
-                  );
-                })}
-              </section>
+              {activeExchangeMode === "record" ? (
+                <section className="exchangeRecordPanel" aria-label="交换信息">
+                  {isRecordingExchange ? (
+                    <article className="exchangeEmptyState">
+                      <RefreshCw size={16} />
+                      <strong>正在写入本地交换记录</strong>
+                    </article>
+                  ) : exchangeRecordError ? (
+                    <article className="exchangeEmptyState error">
+                      <X size={16} />
+                      <strong>{exchangeRecordError}</strong>
+                    </article>
+                  ) : activeExchangeRecord ? (
+                    <>
+                      <article className="exchangeRecordSummary">
+                        <strong>交换摘要</strong>
+                        <p>{activeExchangeRecord.summary}</p>
+                      </article>
+                      <dl className="exchangeRecordGrid">
+                        <div>
+                          <dt>时间</dt>
+                          <dd>{formatRuntimeTime(activeExchangeRecord.createdAt)}</dd>
+                        </div>
+                        <div>
+                          <dt>方向</dt>
+                          <dd>{exchangeDirectionLabel(activeExchangeRecord.direction)}</dd>
+                        </div>
+                        <div>
+                          <dt>Skill</dt>
+                          <dd>{activeExchangeRecord.sharedSkills.length} 个</dd>
+                        </div>
+                        <div>
+                          <dt>记忆摘要</dt>
+                          <dd>{activeExchangeRecord.sharedMemoryCount} 条</dd>
+                        </div>
+                      </dl>
+                      {activeExchangeRecord.sharedSkills.length ? (
+                        <div className="exchangeSharedSkills" aria-label="本次共享 Skill">
+                          {activeExchangeRecord.sharedSkills.map((skillName) => (
+                            <span key={skillName}>{skillName}</span>
+                          ))}
+                        </div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <article className="exchangeEmptyState">
+                      <FileText size={16} />
+                      <strong>暂无交换信息</strong>
+                    </article>
+                  )}
+                </section>
+              ) : (
+                <section className="exchangeSkillShelf modalShelf" aria-label="可交换 Skill">
+                  {shareableSkillOffers.length ? (
+                    shareableSkillOffers.map((skill) => {
+                      const transferring = exchangePulseSkillName === skill.name;
+                      return (
+                        <button
+                          className={`exchangeSkillCard ${transferring ? "transferring" : ""}`}
+                          type="button"
+                          key={`${activeExchangeFriend.id}-${skill.name}`}
+                          disabled={isRecordingExchange || transferring}
+                          onClick={() => void shareSkillWithFriend(activeExchangeFriend, skill)}
+                        >
+                          <span className="exchangeSkillCategory">{categoryLabels[skill.category] ?? skill.category}</span>
+                          <strong>{skill.name}</strong>
+                          <p>{skill.description}</p>
+                          <small>{skill.pitch}</small>
+                          <span className="exchangeInstallBadge">
+                            {transferring ? <RefreshCw size={14} /> : <PackagePlus size={14} />}
+                            {transferring ? "交换中" : "交换此 Skill"}
+                          </span>
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <article className="exchangeEmptyState">
+                      <PackagePlus size={16} />
+                      <strong>当前没有启用的可交换 Skill</strong>
+                    </article>
+                  )}
+                </section>
+              )}
+
+              {activeExchangeMode === "skill" && activeExchangeRecord ? (
+                <section className="exchangeRecordInline" aria-live="polite">
+                  <Check size={16} />
+                  <span>{activeExchangeRecord.summary}</span>
+                </section>
+              ) : null}
             </article>
           </section>
         ) : null}
@@ -842,48 +932,65 @@ export function RuntimeSidePanel({
     </section>
   );
 
-  async function exchangeSkill(friend: FriendCard) {
+  function openSkillExchange(friend: FriendCard) {
+    if (!friend.real) return;
+    setActiveExchangeFriendId(friend.id);
+    setActiveExchangeMode("skill");
+    setActiveExchangeRecord(null);
+    setExchangeRecordError("");
+    setExchangePulseSkillName(null);
+    setFriendNotice("");
+  }
+
+  async function recordExchange(friend: FriendCard) {
+    setActiveExchangeFriendId(friend.id);
+    setActiveExchangeMode("record");
+    setActiveExchangeRecord(null);
+    setExchangeRecordError("");
     setExchangePulseSkillName(null);
     setFriendNotice("");
     if (!friend.real) return;
+    setIsRecordingExchange(true);
     try {
-      await onExchangeFriend(friend.id);
+      const exchange = await onExchangeFriend(friend.id);
+      if (exchange) setActiveExchangeRecord(exchange);
       setFriendNotice(`已记录和 ${friend.displayName} 的本地交换。`);
     } catch (error) {
-      setFriendNotice(error instanceof Error ? error.message : "交换记录写入失败");
+      const message = error instanceof Error ? error.message : "交换记录写入失败";
+      setExchangeRecordError(message);
+      setFriendNotice(message);
+    } finally {
+      setIsRecordingExchange(false);
     }
   }
 
   function closeExchangeModal() {
     setActiveExchangeFriendId(null);
+    setActiveExchangeMode(null);
+    setActiveExchangeRecord(null);
+    setExchangeRecordError("");
+    setIsRecordingExchange(false);
     setExchangePulseSkillName(null);
   }
 
-  async function installFriendSkill(friend: FriendCard, skill: PeerSkillOffer) {
-    const skillForLibrary: SkillSummary = {
-      name: skill.name,
-      description: skill.description,
-      category: skill.category,
-      permissions: skill.permissions,
-      enabled: true,
-      path: `friend://${friend.handle.replace(/^@/, "")}/${skill.name}`,
-    };
-
-    setExchangePulseSkillName(skill.name);
-    window.setTimeout(() => setExchangePulseSkillName((current) => (current === skill.name ? null : current)), 900);
-
-    setInstalledFriendSkills((current) => {
-      if (current.some((item) => item.name === skill.name)) return current;
-      return [skillForLibrary, ...current];
-    });
-    setFriendNotice(`已安装 ${skill.name} 到我的 Skill 库。`);
-
+  async function shareSkillWithFriend(friend: FriendCard, skill: ExchangeSkillOffer) {
     if (!friend.real) return;
+    setActiveExchangeRecord(null);
+    setExchangeRecordError("");
+    setExchangePulseSkillName(skill.name);
+    setIsRecordingExchange(true);
 
     try {
-      await onExchangeFriend(friend.id);
+      const exchange = await onExchangeFriend(friend.id, [skill.name], `Skill 交换：${skill.name}`);
+      if (exchange) setActiveExchangeRecord(exchange);
+      setFriendNotice(`已记录和 ${friend.displayName} 交换 ${skill.name}。`);
     } catch (error) {
-      setFriendNotice(`已安装 ${skill.name}，但交换记录同步失败：${error instanceof Error ? error.message : "未知错误"}`);
+      const message = error instanceof Error ? error.message : "Skill 交换记录写入失败";
+      setExchangeRecordError(message);
+      setFriendNotice(message);
+    } finally {
+      setIsRecordingExchange(false);
+      window.setTimeout(() => setExchangePulseSkillName((current) => (current === skill.name ? null : current)), 900);
     }
   }
 
@@ -930,6 +1037,23 @@ function groupSkills(runtimeSkills: SkillSummary[], installedSkills: SkillSummar
     .filter((group) => group.items.length);
 
   return { groups, total: merged.length };
+}
+
+function exchangeStatusLabel(mode: ExchangeModalMode, skillName: string | null, isRecording: boolean, record: SocialExchangeRecord | null) {
+  if (skillName) return skillName;
+  if (isRecording) return "正在写入本地记录";
+  if (mode === "skill") return "选择要交换的真实 Skill";
+  if (record) return "本地交换已记录";
+  return "交换信息";
+}
+
+function exchangeDirectionLabel(direction: SocialExchangeRecord["direction"]) {
+  const labels: Record<SocialExchangeRecord["direction"], string> = {
+    outgoing: "发出",
+    incoming: "收到",
+    local: "本地记录",
+  };
+  return labels[direction];
 }
 
 function formatToolInput(input: Record<string, unknown>) {

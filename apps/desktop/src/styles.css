@@ -96,6 +96,10 @@ html[data-window="pet"] .appShell {
   animation: pet-task-focus 1.8s ease-in-out infinite;
 }
 
+.petOnlyLayer.roamingEnabled {
+  animation: none;
+}
+
 .petOnlyLayer .petGlow {
   display: none;
 }
@@ -1011,6 +1015,10 @@ h1 {
 .petRig.motion-calm .layer-body img,
 .petRig.motion-calm .layer-head img {
   animation: rig-float 4.5s ease-in-out infinite;
+}
+
+.petOnlyLayer.activity-exercise .avatarLayeredRig .petRig {
+  animation: rig-run 620ms ease-in-out infinite;
 }
 
 .emotion-thinking .petRig .layer-head img {
@@ -3232,6 +3240,16 @@ th {
   }
   50% {
     transform: translateY(-3px);
+  }
+}
+
+@keyframes rig-run {
+  0%,
+  100% {
+    transform: translateY(1px) rotate(-2deg) scale(1.01);
+  }
+  50% {
+    transform: translateY(-6px) rotate(2deg) scale(1.03, 0.98);
   }
 }
 
@@ -9023,11 +9041,163 @@ html:not([data-window="pet"]) body {
 }
 
 .chatConversation {
+  position: relative;
   display: grid;
   min-width: 0;
   min-height: 0;
   grid-template-rows: auto minmax(0, 1fr) auto auto;
   background: #fff;
+}
+
+.chatPermissionBackdrop {
+  position: absolute;
+  z-index: 12;
+  top: 58px;
+  right: 0;
+  left: 0;
+  display: grid;
+  justify-items: center;
+  padding: 14px;
+  pointer-events: none;
+}
+
+.chatPermissionDialog {
+  pointer-events: auto;
+  display: grid;
+  width: min(640px, calc(100% - 24px));
+  max-height: min(560px, calc(100dvh - 210px));
+  gap: 12px;
+  overflow: auto;
+  border: 1px solid rgba(5, 5, 5, 0.14);
+  border-radius: 18px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--clean-ink);
+  box-shadow: 0 24px 60px rgba(8, 9, 10, 0.2);
+  backdrop-filter: blur(18px);
+}
+
+.chatPermissionDialog.dangerous {
+  border-color: rgba(154, 37, 25, 0.36);
+}
+
+.chatPermissionDialog header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.chatPermissionIcon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 13px;
+  background: #050505;
+  color: #fff;
+}
+
+.chatPermissionDialog small,
+.chatPermissionDialog dt {
+  color: #777b72;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.chatPermissionDialog h3 {
+  margin: 2px 0 0;
+  font-size: 18px;
+  font-weight: 950;
+  line-height: 1.14;
+}
+
+.chatPermissionDialog header strong {
+  justify-self: end;
+  border-radius: 999px;
+  padding: 6px 9px;
+  background: #f1f0ea;
+  color: #555a52;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.chatPermissionDialog p {
+  margin: 0;
+  color: #4b5049;
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.5;
+}
+
+.chatPermissionDialog dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.chatPermissionDialog dl div {
+  min-width: 0;
+  border: 1px solid var(--clean-line);
+  border-radius: 12px;
+  padding: 10px;
+  background: #fafaf7;
+}
+
+.chatPermissionDialog dd {
+  overflow-wrap: anywhere;
+  margin: 4px 0 0;
+  color: #20231f;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.chatPermissionDialog pre {
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid rgba(5, 5, 5, 0.1);
+  border-radius: 12px;
+  margin: 0;
+  padding: 12px;
+  background: #111;
+  color: #f7f7ef;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.chatPermissionActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.chatPermissionActions button {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 12px;
+  padding: 0 14px;
+  color: #fff;
+  font-weight: 900;
+}
+
+.chatPermissionActions .approveButton {
+  background: #050505;
+}
+
+.chatPermissionActions .denyButton {
+  background: #9f2d20;
+}
+
+.chatPermissionActions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .chatConversationHeader {
@@ -9266,10 +9436,17 @@ html:not([data-window="pet"]) body {
   justify-content: flex-start;
 }
 
+.friendActions .friendActionPrimary,
 .friendActions button:last-child {
   border: 0;
   background: #050505;
   color: #fff;
+}
+
+.friendActions .friendActionSecondary {
+  border: 1px solid var(--clean-line);
+  background: #fff;
+  color: var(--clean-ink);
 }
 
 .friendCard.exchange-open {
@@ -9284,6 +9461,12 @@ html:not([data-window="pet"]) body {
   background: #d9ff4a;
   color: #050505;
   box-shadow: 0 12px 22px rgba(135, 171, 24, 0.16);
+}
+
+.friendCard.exchange-open .friendActions .friendActionSecondary {
+  border-color: rgba(5, 5, 5, 0.12);
+  background: #fff;
+  color: #050505;
 }
 
 .skillExchangeDock {
@@ -9715,6 +9898,112 @@ html:not([data-window="pet"]) body {
   margin-top: 0;
 }
 
+.exchangeRecordPanel {
+  display: grid;
+  gap: 12px;
+  border: 1px solid rgba(5, 5, 5, 0.08);
+  border-radius: 22px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.76);
+  box-shadow: 0 12px 28px rgba(8, 9, 10, 0.06);
+}
+
+.exchangeRecordSummary {
+  display: grid;
+  gap: 8px;
+}
+
+.exchangeRecordSummary strong,
+.exchangeEmptyState strong {
+  color: #050505;
+  font-size: 15px;
+  font-weight: 950;
+}
+
+.exchangeRecordSummary p {
+  margin: 0;
+  color: #4b5049;
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.55;
+}
+
+.exchangeRecordGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.exchangeRecordGrid div {
+  min-width: 0;
+  border: 1px solid rgba(5, 5, 5, 0.08);
+  border-radius: 14px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.exchangeRecordGrid dt {
+  color: #777b72;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.exchangeRecordGrid dd {
+  overflow-wrap: anywhere;
+  margin: 4px 0 0;
+  color: #050505;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.exchangeSharedSkills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.exchangeSharedSkills span {
+  border-radius: 999px;
+  padding: 7px 10px;
+  background: #050505;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.exchangeEmptyState {
+  display: flex;
+  min-height: 86px;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border: 1px dashed rgba(5, 5, 5, 0.14);
+  border-radius: 18px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.66);
+  color: #050505;
+}
+
+.exchangeEmptyState.error {
+  border-color: rgba(159, 45, 32, 0.34);
+  color: #9f2d20;
+}
+
+.exchangeRecordInline {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  border: 1px solid rgba(5, 5, 5, 0.08);
+  border-radius: 16px;
+  padding: 12px;
+  background: rgba(217, 255, 74, 0.36);
+  color: #050505;
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.45;
+}
+
 .exchangeSkillCard.transferring {
   border-color: rgba(5, 5, 5, 0.28);
   background: #fff;
@@ -9771,12 +10060,38 @@ html:not([data-window="pet"]) body {
     grid-template-columns: 1fr;
   }
 
+  .exchangeRecordGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .exchangeTransferRail {
     min-height: 170px;
   }
 
   .exchangePetSprite {
     --petdex-scale: 0.46;
+  }
+
+  .chatPermissionBackdrop {
+    top: 52px;
+    padding: 10px;
+  }
+
+  .chatPermissionDialog {
+    width: min(100%, calc(100vw - 24px));
+  }
+
+  .chatPermissionDialog header {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .chatPermissionDialog header strong {
+    justify-self: start;
+    grid-column: 2;
+  }
+
+  .chatPermissionDialog dl {
+    grid-template-columns: 1fr;
   }
 }
 

@@ -10,6 +10,7 @@ type PetAvatarProps = {
   emotion: PetEmotion;
   size?: "stage" | "overlay" | "scene";
   draggable?: boolean;
+  spriteStateOverride?: PetdexSpriteStateId | null;
   onClick?: () => void;
   onDoubleClick?: MouseEventHandler<HTMLButtonElement>;
   onPointerDown?: PointerEventHandler<HTMLButtonElement>;
@@ -24,6 +25,7 @@ export function PetAvatar({
   emotion,
   size = "stage",
   draggable = false,
+  spriteStateOverride,
   onClick,
   onDoubleClick,
   onPointerDown,
@@ -63,7 +65,7 @@ export function PetAvatar({
       {spriteTemplate ? (
         <PetdexSprite
           template={spriteTemplate}
-          state={petdexStateForEmotion(emotion)}
+          state={spriteStateOverride ?? petdexStateForEmotion(emotion)}
           scale={petdexScale}
           className={customSpriteTemplate ? "customActionSpriteFrame" : ""}
           label={`${profile.name} 的 Petdex 形象`}

@@ -521,11 +521,16 @@ async function handleRequest(socket: WebSocket, state: ClientState, request: Rpc
         return;
       }
       const account = store.getCurrentAccount() ?? store.signInLocal("本地用户");
-      const sharedSkills = skillService
+      const availableSkills = skillService
         .list()
         .filter((skill) => skill.enabled && !skill.quarantined)
-        .slice(0, 4)
-        .map((skill) => skill.name);
+        .slice(0, 24);
+      const availableSkillNames = new Set(availableSkills.map((skill) => skill.name));
+      const requestedSkillNames = (params.skillNames ?? [])
+        .map((name) => name.trim())
+        .filter((name, index, names) => name && names.indexOf(name) === index);
+      const sharedSkills = (requestedSkillNames.length ? requestedSkillNames.filter((name) => availableSkillNames.has(name)) : availableSkills.map((skill) => skill.name))
+        .slice(0, 4);
       const shareableMemories = store
         .listMemories()
         .filter((memory) => memory.scope === "social" || memory.scope === "shared")
